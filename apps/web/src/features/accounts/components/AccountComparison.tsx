@@ -203,9 +203,13 @@ export function AccountComparison({
             Show accounts
             <select value={provider} onChange={(event) => setProvider(event.target.value)}>
               <option value="all">All providers</option>
-              {Array.from(new Set(accounts.map((row) => row.provider))).sort().map((name) => (
-                <option key={name} value={name}>{name}</option>
-              ))}
+              {Array.from(new Set(accounts.map((row) => row.provider)))
+                .sort()
+                .map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
             </select>
           </label>
           <label>
@@ -307,9 +311,20 @@ export function AccountComparison({
                   ) : (
                     <>
                       <div className={styles.value}>
-                        <strong>{dollars(pricedValue)}</strong>
-                        <span>API-equivalent value delivered</span>
+                        <strong>
+                          {metric === 'total_cost' ? dollars(pricedValue) : number(usage?.[metric])}
+                        </strong>
+                        <span>
+                          {metric === 'total_cost'
+                            ? 'API-equivalent value delivered'
+                            : metric === 'output_tokens'
+                              ? 'Output tokens delivered'
+                              : 'Total recorded tokens'}
+                        </span>
                       </div>
+                      {metric !== 'total_cost' && (
+                        <p className={styles.note}>API-equivalent value: {dollars(pricedValue)}</p>
+                      )}
                       {usage && pricedValue == null && (
                         <p className={styles.note}>
                           Model pricing is missing. Token comparisons remain available.
@@ -328,7 +343,7 @@ export function AccountComparison({
                           <dd>{number(usage?.output_tokens)}</dd>
                         </div>
                         <div>
-                          <dt>Input tokens</dt>
+                          <dt>Input, including cache</dt>
                           <dd>{number(usage?.input_tokens)}</dd>
                         </div>
                         <div>
