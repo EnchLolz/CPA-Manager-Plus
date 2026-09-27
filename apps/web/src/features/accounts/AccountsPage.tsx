@@ -1,3 +1,4 @@
+import { AccountComparison } from './components/AccountComparison';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   KeyboardEvent,
@@ -1502,6 +1503,7 @@ export function AccountsPage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => initialWorkspaceUrlState.current.pageSize);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
   const [usageRows, setUsageRows] = useState<UsageValueRow[]>([]);
   const [accountHistoryByRowKey, setAccountHistoryByRowKey] = useState<
     Map<string, MonitoringAccountHistoryItem>
@@ -10263,7 +10265,10 @@ export function AccountsPage() {
       <section className={styles.controlsPanel}>
         <div className={styles.controlsTabsRow}>
           {renderViewTabs()}
-          {renderPageActions()}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {managerStorageAvailable && <Button variant="secondary" size="sm" onClick={() => setComparisonOpen(true)}>Compare account value</Button>}
+            {renderPageActions()}
+          </div>
         </div>
       </section>
       {activeView === 'accounts' ? (
@@ -10272,6 +10277,7 @@ export function AccountsPage() {
       {renderActiveView()}
       {renderMobileFilterPanel()}
       {renderFloatingBatchActions()}
+      {comparisonOpen && <AccountComparison rows={rows} base={featureAvailability.managerServiceBase} managementKey={managementKey} onClose={() => setComparisonOpen(false)} />}
       <AuthJsonPasteModal
         open={authJsonPasteOpen}
         saving={authJsonPasteSaving}
