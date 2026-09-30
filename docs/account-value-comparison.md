@@ -14,8 +14,8 @@ prices, and quota assumptions are stored in this browser, scoped to the manager 
 The server polls Claude OAuth usage through CPA every five minutes, including
 at startup. It discovers new Claude credentials automatically, uses CPA token
 substitution, and stores account-wide weekly and session observations in the
-existing quota tables. It does not send inference requests or modify routing,
-credentials, or account enabled state. Unsupported, unauthorized, null, and
+existing quota tables. It does not send inference requests or change account enabled state.
+Routing changes are opt-in as described below. Unsupported, unauthorized, null, and
 malformed quota responses do not become zero or unlimited quota. Existing
 observations remain historical evidence and the comparison labels stale data.
 Model-specific or organization-wide limits are not inferred as personal capacity.
@@ -46,3 +46,20 @@ Validation: Go backend suite, worker persistence and parser tests, 367 focused
 account/frontend tests, frontend type check, production build, lint, and browser
 verification of comparison controls. Deployment verification additionally checks
 that Claude snapshots are written without opening account details.
+
+## Automatic Claude reset priority
+
+Set `CLAUDE_RESET_PRIORITY=true` on the manager to order enabled Claude accounts
+by their next overall weekly reset. The existing five-minute quota poll supplies
+fresh data. Earlier resets get higher numeric priorities; weekly-exhausted
+accounts sort last. Missing, stale, or expired weekly observations prevent changes
+for that poll. Disabled credentials and other providers are excluded.
+
+Updates use the CLIProxy management fields API and change only priority metadata.
+Priorities are managed automatically while enabled, so manual Claude priority
+edits are overwritten at the next successful poll. CLIProxy still handles model
+cooldowns and session limits; this is not proactive Fable-specific routing.
+Session affinity is preserved, so existing conversations can remain on their
+current account. After a weekly reset, a fresh observation reorders new sessions.
+Disable the environment option and restart the manager to stop automation; the
+last priorities remain in place until edited.

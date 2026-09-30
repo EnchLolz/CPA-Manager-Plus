@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -25,15 +26,17 @@ type claudeQuotaWriter interface {
 }
 
 // ClaudeQuotaWorker records quota even when no browser is open. It never sends
-// inference requests or changes account routing, credentials, or enabled state.
+// inference requests or changes enabled state. Opt-in reset priority changes only priority metadata.
 type ClaudeQuotaWorker struct {
-	config claudeQuotaConfig
-	writer claudeQuotaWriter
-	client *http.Client
+	config        claudeQuotaConfig
+	writer        claudeQuotaWriter
+	client        *http.Client
+	resetPriority bool
+	weekly        map[string]quotasvc.WindowInput
 }
 
 func NewClaudeQuotaWorker(config claudeQuotaConfig, writer claudeQuotaWriter) *ClaudeQuotaWorker {
-	return &ClaudeQuotaWorker{config: config, writer: writer, client: &http.Client{Timeout: 30 * time.Second}}
+	return &ClaudeQuotaWorker{config: config, writer: writer, client: &http.Client{Timeout: 30 * time.Second}, resetPriority: os.Getenv("CLAUDE_RESET_PRIORITY") == "true"}
 }
 
 func (w *ClaudeQuotaWorker) Start(ctx context.Context) {
@@ -62,6 +65,7 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("account inventory unavailable")
 	}
+	w.weekly = make(map[string]quotasvc.WindowInput)
 	for _, file := range files {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -75,6 +79,9 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 			// Do not log provider bodies, tokens, or account identifiers.
 			log.Printf("[claude-quota] account observation failed: %v", err)
 		}
+	}
+	if w.resetPriority {
+		return w.applyResetPriority(ctx, setup, files)
 	}
 	return nil
 }
@@ -134,6 +141,13 @@ func (w *ClaudeQuotaWorker) pollAccount(ctx context.Context, setup store.Setup, 
 	}}})
 	if err != nil {
 		return fmt.Errorf("could not save quota observation")
+	}
+	if w.weekly != nil {
+		for _, window := range windows {
+			if window.ProviderWindowID == "seven-day" {
+				w.weekly[file.AuthIndex] = window
+			}
+		}
 	}
 	return nil
 }
