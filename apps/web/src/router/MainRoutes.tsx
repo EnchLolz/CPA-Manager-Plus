@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom';
 import { AccountsPage } from '@/pages/AccountsPage';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { OverviewPage } from '@/pages/OverviewPage';
 import { AiProvidersPage } from '@/pages/AiProvidersPage';
 import { AiProvidersClaudeEditLayout } from '@/pages/AiProvidersClaudeEditLayout';
 import { AiProvidersClaudeEditPage } from '@/pages/AiProvidersClaudeEditPage';
@@ -121,7 +122,7 @@ function LogsGate({ children }: { children: ReactElement }) {
 }
 
 const mainRoutes: RouteObject[] = [
-  { path: '/', element: <DashboardPage /> },
+  { path: '/', element: <OverviewPage /> },
   { path: '/dashboard', element: <DashboardPage /> },
   { path: '/settings', element: <Navigate to="/config" replace /> },
   { path: '/api-keys', element: <Navigate to="/config" replace /> },

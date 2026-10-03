@@ -19,6 +19,7 @@ import {
   IconSidebarAuthFiles,
   IconSidebarConfig,
   IconSidebarDashboard,
+  IconSidebarQuota,
   IconSidebarLogs,
   IconSidebarMonitor,
   IconSidebarOauth,
@@ -60,6 +61,7 @@ const SIDEBAR_ICON_SIZE = 20;
 const GITHUB_REPOSITORY_URL = 'https://github.com/seakee/CPA-Manager-Plus';
 
 const sidebarIcons: Record<string, ReactNode> = {
+  overview: <IconSidebarQuota size={SIDEBAR_ICON_SIZE} />,
   dashboard: <IconSidebarDashboard size={SIDEBAR_ICON_SIZE} />,
   aiProviders: <IconSidebarProviders size={SIDEBAR_ICON_SIZE} />,
   authFiles: <IconSidebarAuthFiles size={SIDEBAR_ICON_SIZE} />,
@@ -510,8 +512,15 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
     const label = t(shortKey, { defaultValue: fallback });
     return label === shortKey ? fallback : label;
   };
-  const dashboardNavItem: NavItem = {
+  const overviewNavItem: NavItem = {
     path: '/',
+    label: 'Overview',
+    shortLabel: 'Overview',
+    icon: sidebarIcons.overview,
+    exact: true,
+  };
+  const dashboardNavItem: NavItem = {
+    path: '/dashboard',
     label: t('nav.dashboard'),
     shortLabel: navShortLabel('nav.dashboard', t('nav.dashboard')),
     icon: sidebarIcons.dashboard,
@@ -573,6 +582,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
     : [];
   const navSections: NavItem[][] = [
     [
+      overviewNavItem,
       dashboardNavItem,
       ...(usageAnalyticsNavItem ? [usageAnalyticsNavItem] : []),
       ...(monitoringNavItem ? [monitoringNavItem] : []),
@@ -626,7 +636,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
   const getRouteOrder = (pathname: string) => {
     const trimmedPath =
       pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
-    const normalizedPath = trimmedPath === '/dashboard' ? '/' : trimmedPath;
+    const normalizedPath = trimmedPath;
 
     const aiProvidersIndex = navOrder.indexOf('/ai-providers');
     if (aiProvidersIndex !== -1) {
@@ -653,7 +663,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
     const normalize = (pathname: string) => {
       const trimmed =
         pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
-      return trimmed === '/dashboard' ? '/' : trimmed;
+      return trimmed;
     };
 
     const from = normalize(fromPathname);
@@ -700,7 +710,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
     routePathname.length > 1 && routePathname.endsWith('/')
       ? routePathname.slice(0, -1)
       : routePathname;
-  const currentPath = normalizedLocationPath === '/dashboard' ? '/' : normalizedLocationPath;
+  const currentPath = normalizedLocationPath;
   const matchesNavPath = (item: NavItem, pathname: string) =>
     item.path === '/' || item.exact
       ? pathname === item.path
