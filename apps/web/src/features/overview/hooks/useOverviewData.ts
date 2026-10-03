@@ -21,6 +21,7 @@ import {
 import { useAuthStore, useQuotaStore } from '@/stores';
 import { usePanelFeatureAvailability } from '@/hooks/usePanelFeatureAvailability';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
+import { isDemoMode } from '@/features/demo/demoMode';
 import type { AuthFileItem } from '@/types/authFile';
 import type { CredentialScopedQuotaState } from '@/types';
 import { buildAccountRows, type AccountRow } from '@/features/accounts/model/accountRows';
@@ -154,7 +155,7 @@ export function useOverviewData(): OverviewData {
   );
 
   const loadRouting = useCallback(async () => {
-    if (!managerBase) {
+    if (!managerBase || (__DEMO_SITE__ && isDemoMode())) {
       setRoutingAvailable(false);
       return;
     }
