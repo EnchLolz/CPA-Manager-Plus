@@ -280,6 +280,7 @@ func runServer() {
 		automationRuntime.Start(ctx)
 		codexInspectionWorker.Start(ctx)
 		worker.NewClaudeQuotaWorker(serverApp.AppContext().ManagerConfigService, serverApp.AppContext().QuotaSnapshotService).Start(ctx)
+		worker.NewCodexTierPriorityWorker(serverApp.AppContext().ManagerConfigService).Start(ctx)
 		accountHistoryRollupWorker.Start(ctx)
 		usageDerivedRollupWorker.Start(ctx)
 		if usageHourlyAggregateWorker != nil {

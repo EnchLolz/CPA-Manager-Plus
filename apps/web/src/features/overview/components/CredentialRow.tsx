@@ -1,6 +1,7 @@
 import { IconRefreshCw } from '@/components/ui/icons';
 import {
   formatPercentValue,
+  formatPlanType,
   maskCredentialName,
   toneForRemaining,
   type OverviewCredential,
@@ -34,23 +35,10 @@ export function CredentialRow({
   const name = showEmails ? credential.fileName : maskCredentialName(credential.fileName);
   const quotaState = credential.raw.quota;
   const errorText = quotaState.status === 'error' ? quotaState.error : null;
-  const statusTone = credential.disabled
-    ? 'none'
-    : errorText
-      ? 'bad'
-      : toneForRemaining(credential.headline?.remainingPercent ?? null);
-  const statusTitle = credential.disabled
-    ? 'Disabled'
-    : errorText
-      ? 'Last refresh failed'
-      : credential.headline
-        ? `${credential.headline.label}: ${formatPercentValue(credential.headline.remainingPercent)} left`
-        : 'No quota observed';
   return (
     <div className={`${styles.row} ${credential.disabled ? styles.rowDisabled : ''}`}>
       <div className={styles.identity}>
         <div className={styles.fileName} title={credential.fileName}>
-          <span className={`${styles.statusDot} ${styles[`bg_${statusTone}`]}`} title={statusTitle} />
           <ProviderGlyph provider={credential.provider} size="sm" />
           {routingRank !== null && (
             <span className={styles.rank} title="Routing order (earliest weekly reset first)">
@@ -60,7 +48,9 @@ export function CredentialRow({
           {name}
         </div>
         <div className={styles.meta}>
-          {credential.planType && <span className={styles.plan}>{credential.planType}</span>}
+          {formatPlanType(credential.planType) && (
+            <span className={styles.plan}>{formatPlanType(credential.planType)}</span>
+          )}
           {credential.disabled && <span className={styles.badgeMuted}>disabled</span>}
           {credential.priority !== null && (
             <span className={styles.badgeMuted}>priority {credential.priority}</span>

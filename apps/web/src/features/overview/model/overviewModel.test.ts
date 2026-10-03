@@ -4,9 +4,11 @@ import type { AccountQuotaWindowDefinition } from '@/features/accounts/model/acc
 import {
   buildOverviewCredential,
   buildOverviewProviders,
+  formatPlanType,
   formatResetParts,
   labelForSnapshotWindowId,
   maskCredentialName,
+  resolveHeadlineLabel,
   selectDisplayWindows,
   sortCredentials,
   toneForRemaining,
@@ -92,6 +94,18 @@ describe('selectDisplayWindows', () => {
     expect(windows.map((w) => w.id)).toEqual(['seven-day-opus', 'five-hour', 'seven-day']);
     expect(windows[0].modelScoped).toBe(true);
     expect(windows[0].remainingPercent).toBe(58);
+  });
+
+  it('leads with the weekly limit for codex even when a model-scoped 5-hour window exists', () => {
+    const windows = selectDisplayWindows(
+      [
+        definition({ providerWindowId: 'codex-review-5h', label: 'Code review 5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 40, modelScope: { kind: 'feature', key: 'code-review', complete: true } }),
+        definition({ providerWindowId: 'primary', label: '5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 60 }),
+        definition({ providerWindowId: 'secondary', label: 'Weekly limit', usedPercent: 30 }),
+      ],
+      NOW
+    );
+    expect(windows.map((w) => w.id)).toEqual(['secondary', 'primary', 'codex-review-5h']);
   });
 
   it('leads with the longest model-scoped window and keeps group names', () => {
@@ -197,6 +211,23 @@ describe('formatting helpers', () => {
     expect(formatResetParts(NOW + 2 * DAY, NOW)?.relative).toBe('in 2 days');
     expect(formatResetParts(NOW + 10 * 60_000, NOW)?.relative).toBe('in 10 min');
     expect(formatResetParts(null, NOW)).toBeNull();
+  });
+
+  it('names the provider card by consensus, not by one credential', () => {
+    const w = (label: string, durationSeconds: number | null) =>
+      ({ id: label, label, remainingPercent: 50, resetAtMs: null, durationSeconds, modelScoped: false, stale: false });
+    expect(resolveHeadlineLabel([w('7-day Opus', 604_800), w('7-day Opus', 604_800)])).toBe('7-day Opus');
+    expect(resolveHeadlineLabel([w('7-day Opus', 604_800), w('7-day limit', 604_800)])).toBe('7-day limit');
+    expect(resolveHeadlineLabel([w('Weekly', 604_800), w('Monthly', 2_592_000)])).toBe('Longest limit');
+    expect(resolveHeadlineLabel([])).toBe('Quota');
+  });
+
+  it('formats plan types for display', () => {
+    expect(formatPlanType('plan_max')).toBe('Max');
+    expect(formatPlanType('PLAN_PRO')).toBe('Pro');
+    expect(formatPlanType('team')).toBe('Team');
+    expect(formatPlanType('')).toBeNull();
+    expect(formatPlanType(null)).toBeNull();
   });
 
   it('maps remaining percent to a tone', () => {

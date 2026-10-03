@@ -123,10 +123,17 @@ const byDuration = (a: OverviewWindow, b: OverviewWindow) =>
 const byDurationDesc = (a: OverviewWindow, b: OverviewWindow) =>
   (b.durationSeconds ?? -1) - (a.durationSeconds ?? -1);
 
+/** Longest window wins; a model-scoped window beats an account-wide one of equal length. */
+const byHeadlinePreference = (a: OverviewWindow, b: OverviewWindow) => {
+  const duration = byDurationDesc(a, b);
+  if (duration !== 0) return duration;
+  return Number(b.modelScoped) - Number(a.modelScoped);
+};
+
 /**
- * Pick the windows worth showing on one row: the longest model-scoped window
- * first (the weekly family limit is what actually gates heavy use), then
- * account-wide windows shortest to longest, then any remaining model-scoped
+ * Pick the windows worth showing on one row: the headline window first (the
+ * longest limit, which is what actually gates sustained use), then the other
+ * account-wide windows shortest to longest, then remaining model-scoped
  * windows. Duplicated ids collapse to the freshest entry.
  */
 export const selectDisplayWindows = (
@@ -143,17 +150,24 @@ export const selectDisplayWindows = (
     }
   }
   const windows = Array.from(byId.values());
-  const model = windows.filter((w) => w.modelScoped).sort(byDurationDesc);
-  const standard = windows.filter((w) => !w.modelScoped).sort(byDuration);
-  return [...model.slice(0, 1), ...standard, ...model.slice(1)].slice(0, MAX_WINDOWS_PER_CREDENTIAL);
+  const headline = selectHeadlineWindow(windows);
+  if (!headline) return [];
+  const rest = windows.filter((w) => w !== headline);
+  const standard = rest.filter((w) => !w.modelScoped).sort(byDuration);
+  const model = rest.filter((w) => w.modelScoped).sort(byDurationDesc);
+  return [headline, ...standard, ...model].slice(0, MAX_WINDOWS_PER_CREDENTIAL);
 };
 
 /** The window that best represents "how much of this subscription is left". */
-export const selectHeadlineWindow = (windows: OverviewWindow[]): OverviewWindow | null => {
-  const model = windows.filter((w) => w.modelScoped).sort(byDurationDesc);
-  if (model.length) return model[0];
-  const standard = windows.filter((w) => !w.modelScoped).sort(byDurationDesc);
-  return standard.length ? standard[0] : null;
+export const selectHeadlineWindow = (windows: OverviewWindow[]): OverviewWindow | null =>
+  windows.length ? [...windows].sort(byHeadlinePreference)[0] : null;
+
+/** `plan_max` / `PLAN_PRO` / `max` -> `Max`. */
+export const formatPlanType = (planType: string | null): string | null => {
+  if (!planType) return null;
+  const cleaned = planType.trim().replace(/^plan[_\s-]*/i, '').replace(/[_-]+/g, ' ');
+  if (!cleaned) return null;
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
 };
 
 export const buildOverviewCredential = (
@@ -201,6 +215,30 @@ export const sortCredentials = (credentials: OverviewCredential[]): OverviewCred
   });
 };
 
+const describeDuration = (seconds: number): string => {
+  if (seconds === 18_000) return '5-hour limit';
+  if (seconds === 86_400) return 'Daily limit';
+  if (seconds === 604_800) return '7-day limit';
+  if (seconds >= 28 * 86_400 && seconds <= 31 * 86_400) return 'Monthly limit';
+  return 'Longest limit';
+};
+
+/**
+ * Card label for a provider: the shared window label when every credential
+ * agrees, otherwise a neutral description of the window length so one
+ * account's model-specific name is not presented as the group's.
+ */
+export const resolveHeadlineLabel = (headlines: OverviewWindow[]): string => {
+  if (headlines.length === 0) return 'Quota';
+  const labels = new Set(headlines.map((w) => w.label));
+  if (labels.size === 1) return headlines[0].label;
+  const durations = new Set(headlines.map((w) => w.durationSeconds));
+  if (durations.size === 1 && headlines[0].durationSeconds !== null) {
+    return describeDuration(headlines[0].durationSeconds);
+  }
+  return 'Longest limit';
+};
+
 export const buildOverviewProviders = (credentials: OverviewCredential[]): OverviewProvider[] => {
   const groups = new Map<string, OverviewCredential[]>();
   for (const credential of credentials) {
@@ -218,7 +256,7 @@ export const buildOverviewProviders = (credentials: OverviewCredential[]): Overv
     return {
       provider,
       credentials: sorted,
-      headlineLabel: withHeadline[0]?.headline?.label ?? 'Quota',
+      headlineLabel: resolveHeadlineLabel(withHeadline.map((c) => c.headline as OverviewWindow)),
       remainingPercent: measured.length
         ? Math.round(measured.reduce((sum, c) => sum + (c.headline?.remainingPercent ?? 0), 0))
         : null,

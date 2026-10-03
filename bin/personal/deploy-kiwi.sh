@@ -38,6 +38,8 @@ docker run -d --name "$container" --restart unless-stopped \
   -e USAGE_DATA_DIR=/data \
   -e USAGE_DB_PATH=/data/usage.sqlite \
   -e CLAUDE_RESET_PRIORITY=true \
+  -e CODEX_TIER_PRIORITY=true \
+  -e CODEX_TIER_ORDER=plus,pro,promax \
   "${image}:${tag}" >/dev/null
 for _ in $(seq 1 30); do
   if curl -fsS "http://${bind}:18317/health" >/dev/null 2>&1; then

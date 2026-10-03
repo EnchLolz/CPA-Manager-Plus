@@ -80,13 +80,14 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 			log.Printf("[claude-quota] account observation failed: %v", err)
 		}
 	}
-	updateClaudeResetPriorityStatus(func(status *ClaudeResetPriorityStatus) {
+	updateRoutingStatus("claude", func(status *RoutingStatus) {
 		status.Enabled = w.resetPriority
+		status.Strategy = "earliest weekly reset first"
 		status.LastPollAtMS = time.Now().UnixMilli()
 	})
 	if w.resetPriority {
 		err := w.applyResetPriority(ctx, setup, files)
-		updateClaudeResetPriorityStatus(func(status *ClaudeResetPriorityStatus) {
+		updateRoutingStatus("claude", func(status *RoutingStatus) {
 			if err != nil {
 				status.LastError = err.Error()
 			} else {

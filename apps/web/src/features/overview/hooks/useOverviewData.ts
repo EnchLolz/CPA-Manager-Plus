@@ -46,10 +46,7 @@ import {
   type OverviewCredential,
   type OverviewProvider,
 } from '../model/overviewModel';
-import {
-  fetchClaudeResetPriorityStatus,
-  type ClaudeResetPriorityStatus,
-} from '../services/resetPriorityApi';
+import { fetchRoutingStatus, type RoutingStatusByProvider } from '../services/routingApi';
 
 type QuotaStoreState = ReturnType<typeof useQuotaStore.getState>;
 type Refresher = (file: AuthFileItem, t: TFunction) => Promise<void>;
@@ -101,8 +98,7 @@ export interface OverviewData {
   refreshing: ReadonlySet<string>;
   refreshingAll: boolean;
   lastLoadedAtMs: number | null;
-  routing: ClaudeResetPriorityStatus | null;
-  routingAvailable: boolean;
+  routing: RoutingStatusByProvider;
   reload: () => Promise<void>;
   refreshCredential: (credential: OverviewCredential) => Promise<void>;
   refreshAll: () => Promise<void>;
@@ -131,8 +127,7 @@ export function useOverviewData(): OverviewData {
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [lastLoadedAtMs, setLastLoadedAtMs] = useState<number | null>(null);
-  const [routing, setRouting] = useState<ClaudeResetPriorityStatus | null>(null);
-  const [routingAvailable, setRoutingAvailable] = useState(false);
+  const [routing, setRouting] = useState<RoutingStatusByProvider>({});
   const requestSeq = useRef(0);
   // One clock for the whole page so relative times stay consistent and pure.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -155,16 +150,15 @@ export function useOverviewData(): OverviewData {
   );
 
   const loadRouting = useCallback(async () => {
-    if (!managerBase || (__DEMO_SITE__ && isDemoMode())) {
-      setRoutingAvailable(false);
+    if (!managerBase && !(__DEMO_SITE__ && isDemoMode())) {
+      setRouting({});
       return;
     }
     try {
-      setRouting(await fetchClaudeResetPriorityStatus(managerBase, managementKey));
-      setRoutingAvailable(true);
+      setRouting(await fetchRoutingStatus(managerBase, managementKey));
     } catch {
       // Upstream manager-server builds do not expose this endpoint. That is fine.
-      setRoutingAvailable(false);
+      setRouting({});
     }
   }, [managerBase, managementKey]);
 
@@ -254,6 +248,18 @@ export function useOverviewData(): OverviewData {
 
   useHeaderRefresh(refreshAll);
 
+  // Fetch live quota for every enabled credential once the inventory is in,
+  // so the page is current on open without a manual click.
+  const autoRefreshed = useRef(false);
+  useEffect(() => {
+    if (loading || autoRefreshed.current || credentials.length === 0) return;
+    autoRefreshed.current = true;
+    const targets = credentials.filter((c) => !c.disabled && canRefreshProvider(c.provider));
+    if (targets.length === 0) return;
+    setRefreshingAll(true);
+    void Promise.allSettled(targets.map(refreshCredential)).finally(() => setRefreshingAll(false));
+  }, [credentials, loading, refreshCredential]);
+
   void i18n;
 
   return {
@@ -266,7 +272,6 @@ export function useOverviewData(): OverviewData {
     refreshingAll,
     lastLoadedAtMs,
     routing,
-    routingAvailable,
     reload,
     refreshCredential,
     refreshAll,

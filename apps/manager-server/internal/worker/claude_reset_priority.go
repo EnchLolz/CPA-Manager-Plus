@@ -1,18 +1,12 @@
 package worker
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"sort"
-	"strings"
 	"time"
 
-	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpa"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpaauthfiles"
 	quotasvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/quotasnapshot"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
@@ -60,49 +54,24 @@ func (w *ClaudeQuotaWorker) applyResetPriority(ctx context.Context, setup store.
 	if err != nil {
 		return err
 	}
-	order := make([]ClaudeResetPriorityAccount, 0, len(plan))
+	order := make([]RoutingAccount, 0, len(plan))
 	for _, item := range plan {
 		q := w.weekly[item.file.AuthIndex]
-		order = append(order, ClaudeResetPriorityAccount{
+		order = append(order, RoutingAccount{
 			Name: item.file.Name, AuthIndex: item.file.AuthIndex, Priority: item.priority,
-			CycleEndMS: *q.CycleEndMS, UsedPercent: *q.UsedPercent,
+			CycleEndMS: q.CycleEndMS, UsedPercent: q.UsedPercent,
 		})
 	}
-	updateClaudeResetPriorityStatus(func(status *ClaudeResetPriorityStatus) {
+	updateRoutingStatus("claude", func(status *RoutingStatus) {
 		status.Order = order
 		status.LastAppliedAtMS = time.Now().UnixMilli()
 	})
 	for _, item := range plan {
-		current, _ := json.Marshal(item.file.Raw["priority"])
-		if string(current) == fmt.Sprint(item.priority) || string(current) == fmt.Sprintf("%q", fmt.Sprint(item.priority)) {
+		if current, ok := currentPriority(item.file); ok && current == item.priority {
 			continue
 		}
-		selector := item.file.ID
-		if selector == "" {
-			selector = item.file.Name
-		}
-		body, _ := json.Marshal(map[string]any{"name": selector, "priority": item.priority})
-		req, err := http.NewRequestWithContext(ctx, "PATCH", cpa.NormalizeBaseURL(setup.CPAUpstreamURL)+"/v0/management/auth-files/fields", bytes.NewReader(body))
-		if err != nil {
-			return fmt.Errorf("reset priority: invalid endpoint")
-		}
-		req.Header.Set("Authorization", "Bearer "+setup.ManagementKey)
-		req.Header.Set("Content-Type", "application/json")
-		res, err := w.client.Do(req)
-		if err != nil {
-			return fmt.Errorf("reset priority update unavailable")
-		}
-		raw, readErr := io.ReadAll(io.LimitReader(res.Body, 65536))
-		res.Body.Close()
-		if readErr != nil || res.StatusCode < 200 || res.StatusCode >= 300 {
-			return fmt.Errorf("reset priority update HTTP %d", res.StatusCode)
-		}
-		var status struct {
-			Status string `json:"status"`
-			OK     *bool  `json:"ok"`
-		}
-		if json.Unmarshal(raw, &status) != nil || (status.OK != nil && !*status.OK) || (status.Status != "" && !strings.EqualFold(status.Status, "ok")) {
-			return fmt.Errorf("reset priority update rejected")
+		if err := patchAuthFilePriority(ctx, w.client, setup, item.file, item.priority); err != nil {
+			return fmt.Errorf("reset priority: %w", err)
 		}
 		log.Printf("[claude-reset-priority] updated %s to %d", item.file.Name, item.priority)
 	}

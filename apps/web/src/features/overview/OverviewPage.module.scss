@@ -190,9 +190,9 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 .track {
   position: relative;
   flex: 1 1 0;
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(127, 127, 127, 0.22);
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.18);
   overflow: hidden;
 }
 
@@ -202,60 +202,48 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
 .fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 999px;
   transition: width 0.3s ease;
 }
 
-.tone_good { background: var(--data-green-base); box-shadow: 0 0 6px color-mix(in srgb, var(--data-green-base) 55%, transparent); }
-.tone_warn { background: var(--data-amber-base); box-shadow: 0 0 6px color-mix(in srgb, var(--data-amber-base) 55%, transparent); }
-.tone_bad { background: var(--data-red-base); box-shadow: 0 0 6px color-mix(in srgb, var(--data-red-base) 55%, transparent); }
+.tone_good { background: #19b989; }
+.tone_warn { background: #f2c14e; }
+.tone_bad { background: #ef5a5a; }
 .tone_none { background: transparent; }
 
-.text_good { color: var(--data-green-base); }
-.text_warn { color: var(--data-amber-base); }
-.text_bad { color: var(--data-red-base); }
+.text_good,
+.text_warn,
+.text_bad { color: var(--text-primary); }
 .text_none { color: var(--text-tertiary); }
-
-.bg_good { background: var(--data-green-base); box-shadow: 0 0 6px var(--data-green-base); }
-.bg_warn { background: var(--data-amber-base); box-shadow: 0 0 6px var(--data-amber-base); }
-.bg_bad { background: var(--data-red-base); box-shadow: 0 0 6px var(--data-red-base); }
-.bg_none { background: var(--text-tertiary); opacity: 0.5; }
 
 .glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  font-size: 13px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 700;
+  color: var(--text-secondary);
 
   img {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     object-fit: contain;
   }
 }
 
 .glyphSm {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  font-size: 11px;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
 
   img {
-    width: 13px;
-    height: 13px;
+    width: 15px;
+    height: 15px;
   }
-}
-
-.statusDot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
 }
 
 .tabLabel {
@@ -289,58 +277,92 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   opacity: 0.6;
 }
 
-.routingCard {
+.sectionHead {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 20px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--app-radius-lg);
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-backdrop-filter);
-}
-
-.routingHead {
-  display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-.routingTitle {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
+.routing {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 6px;
+  border-radius: var(--app-radius-md);
+  border: 1px solid transparent;
 }
 
-.routingSub {
-  margin-top: 2px;
-  font-size: 12px;
+.routingOpen {
+  flex: 1 1 100%;
+  border-color: var(--glass-border);
+  background: var(--glass-bg);
+}
+
+.routingToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
   color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: var(--app-radius-md);
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--sidebar-hover-bg-color, rgba(127, 127, 127, 0.08));
+  }
 }
 
-.pill {
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
+.routingState {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.routingOn { background: #19b989; }
+.routingOff { background: var(--text-tertiary); opacity: 0.6; }
+
+.routingSummary {
   white-space: nowrap;
 }
 
-.pillOn {
-  background: color-mix(in srgb, var(--data-green-base) 18%, transparent);
-  color: var(--data-green-base);
+.routingFirst {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.pillWarn {
-  background: color-mix(in srgb, var(--data-amber-base) 18%, transparent);
-  color: var(--data-amber-base);
+.routingChevron {
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+
+  .routingOpen & {
+    transform: rotate(180deg);
+  }
 }
 
-.pillOff {
-  background: var(--app-surface-muted);
-  color: var(--text-tertiary);
+.routingBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 12px 10px;
+}
+
+.mono {
+  font-family: $mono;
 }
 
 .routingOrder {
@@ -371,7 +393,6 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 .routingName {
-  font-family: $mono;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -477,7 +498,6 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 .plan {
-  text-transform: capitalize;
   color: var(--text-secondary);
 }
 
@@ -512,7 +532,7 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 .window {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -533,7 +553,7 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
 .windowValue {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
 }
 

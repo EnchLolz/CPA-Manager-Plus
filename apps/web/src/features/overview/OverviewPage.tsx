@@ -3,7 +3,7 @@
  * subscription and which one is routing first". Everything else in the panel
  * stays upstream.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconEye, IconEyeOff, IconRefreshCw } from '@/components/ui/icons';
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
@@ -11,11 +11,12 @@ import { getProviderLabel } from '@/features/accounts/model/accountsPagePresenta
 import { canRefreshProvider, useOverviewData } from './hooks/useOverviewData';
 import { ProviderSummaryCard } from './components/ProviderSummaryCard';
 import { CredentialRow } from './components/CredentialRow';
-import { RoutingCard } from './components/RoutingCard';
+import { RoutingDisclosure } from './components/RoutingDisclosure';
 import { ProviderGlyph } from './components/ProviderGlyph';
 import styles from './OverviewPage.module.scss';
 
 const SHOW_EMAILS_KEY = 'overview.showEmails';
+const PROVIDER_LABEL_OVERRIDES: Record<string, string> = { openai: 'OpenAI', xai: 'xAI' };
 
 export function OverviewPage() {
   const { t, i18n } = useTranslation();
@@ -28,6 +29,10 @@ export function OverviewPage() {
   }, [showEmails]);
 
   const locale = i18n.language || 'en-US';
+  const providerLabel = useCallback(
+    (provider: string) => PROVIDER_LABEL_OVERRIDES[provider] ?? getProviderLabel(provider, t),
+    [t]
+  );
   const tabs = useMemo(
     () => [
       {
@@ -43,22 +48,23 @@ export function OverviewPage() {
         label: (
           <span className={styles.tabLabel}>
             <ProviderGlyph provider={p.provider} size="sm" />
-            {getProviderLabel(p.provider, t)}
+            {providerLabel(p.provider)}
             <span className={styles.tabCount}>{p.credentials.length}</span>
           </span>
         ),
       })),
     ],
-    [data.credentials.length, data.providers, t]
+    [data.credentials.length, data.providers, providerLabel]
   );
   const visibleProviders = filter === 'all' ? data.providers : data.providers.filter((p) => p.provider === filter);
   const withData = data.credentials.filter((c) => c.windows.length > 0).length;
-  const routingRankByName = useMemo(() => {
-    const map = new Map<string, number>();
-    if (data.routing?.enabled) {
-      data.routing.order.forEach((account, index) => map.set(account.name, index + 1));
+  const routingRank = useMemo(() => {
+    const byProvider = new Map<string, Map<string, number>>();
+    for (const [provider, status] of Object.entries(data.routing)) {
+      if (!status.enabled) continue;
+      byProvider.set(provider, new Map(status.order.map((account, index) => [account.name, index + 1])));
     }
-    return map;
+    return byProvider;
   }, [data.routing]);
 
   return (
@@ -112,7 +118,7 @@ export function OverviewPage() {
           <ProviderSummaryCard
             key={provider.provider}
             provider={provider}
-            label={getProviderLabel(provider.provider, t)}
+            label={providerLabel(provider.provider)}
             nowMs={data.nowMs}
             locale={locale}
             active={filter === provider.provider}
@@ -124,16 +130,22 @@ export function OverviewPage() {
         )}
       </section>
 
-      {data.routing && (filter === 'all' || filter === 'claude') && (
-        <RoutingCard status={data.routing} nowMs={data.nowMs} locale={locale} showEmails={showEmails} />
-      )}
-
       {visibleProviders.map((provider) => (
         <section key={provider.provider} className={styles.providerSection}>
-          <h2 className={styles.sectionTitle}>
-            {getProviderLabel(provider.provider, t)}
-            <span className={styles.sectionCount}>{provider.credentials.length}</span>
-          </h2>
+          <div className={styles.sectionHead}>
+            <h2 className={styles.sectionTitle}>
+              {providerLabel(provider.provider)}
+              <span className={styles.sectionCount}>{provider.credentials.length}</span>
+            </h2>
+            {data.routing[provider.provider] && (
+              <RoutingDisclosure
+                status={data.routing[provider.provider]}
+                nowMs={data.nowMs}
+                locale={locale}
+                showEmails={showEmails}
+              />
+            )}
+          </div>
           <div className={styles.rows}>
             {provider.credentials.map((credential) => (
               <CredentialRow
@@ -144,7 +156,7 @@ export function OverviewPage() {
                 showEmails={showEmails}
                 refreshing={data.refreshing.has(credential.key)}
                 canRefresh={!credential.disabled && canRefreshProvider(credential.provider)}
-                routingRank={routingRankByName.get(credential.fileName) ?? null}
+                routingRank={routingRank.get(provider.provider)?.get(credential.fileName) ?? null}
                 onRefresh={() => void data.refreshCredential(credential)}
               />
             ))}

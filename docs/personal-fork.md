@@ -24,8 +24,13 @@ rebased onto each upstream release rather than merged.
 - **Reset-priority routing** (`claude_reset_priority.go`): when
   `CLAUDE_RESET_PRIORITY=true`, enabled Claude credentials get CPA `priority`
   values so the one whose weekly limit resets soonest is used first. Exhausted
-  accounts drop to the bottom. Status is exposed at
-  `GET /v0/management/claude-reset-priority`.
+  accounts drop to the bottom.
+- **Codex tier routing** (`codex_tier_priority.go`): when `CODEX_TIER_PRIORITY=true`,
+  enabled Codex credentials are prioritized by subscription tier, default
+  `CODEX_TIER_ORDER=plus,pro,promax`, so the Plus subscription is spent first.
+  The tier comes from the credential's `plan_type` or the file name suffix.
+- Both workers report to `GET /v0/management/routing-priority`, which the
+  Overview shows as a collapsed line under each provider heading.
 - **Account value comparison** in Credential Management.
 
 Upstream files touched, each by a line or two: `MainRoutes.tsx`, `MainLayout.tsx`,
