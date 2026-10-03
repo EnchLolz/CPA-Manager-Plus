@@ -220,8 +220,10 @@ export function useOverviewData(): OverviewData {
 
   const rows = useMemo(() => buildAccountRows(files, stores), [files, stores]);
 
+  // Disabled credentials are not routed and are not shown; manage them in
+  // Credential Management.
   const credentials = useMemo(() => {
-    return rows.map((row) => {
+    return rows.filter((row) => !row.disabled).map((row) => {
       const displayWindows = buildAccountQuotaDisplayWindows(row, { stores, translateQuotaWindowLabel, t, nowMs });
       const definitions = buildAccountQuotaWindowDefinitions(displayWindows, nowMs);
       const merged = mergeAccountQuotaSnapshotWindows(definitions, snapshots.get(row.selectionKey) ?? [], {
