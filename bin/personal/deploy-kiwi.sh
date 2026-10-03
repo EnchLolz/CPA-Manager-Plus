@@ -5,7 +5,7 @@
 set -euo pipefail
 
 host="${KIWI_HOST:-kiwi}"
-image="ghcr.io/enchlolz/cpa-manager-plus"
+image="${KIWI_IMAGE:-ghcr.io/enchlolz/cpa-manager-plus}"   # override to roll back to a local tag
 container="cpa-manager-plus"
 bind="${KIWI_BIND:-100.79.242.61}"
 local_build=false

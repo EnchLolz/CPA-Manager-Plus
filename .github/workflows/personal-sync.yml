@@ -81,6 +81,29 @@ jobs:
           gh issue create --title "$title" --body "$(printf 'Rebasing \`personal\` from %s onto %s hit conflicts in:\n\n```\n%s\n```\n\nRun locally:\n\n```\ngit fetch upstream --tags\ngit rebase --onto %s %s personal\n```' "${{ steps.tags.outputs.base }}" "${{ steps.tags.outputs.target }}" "$conflicts" "${{ steps.tags.outputs.target }}" "${{ steps.tags.outputs.base }}")"
           exit 1
 
+      - uses: actions/setup-node@v4
+        if: steps.rebase.outcome == 'success'
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-go@v5
+        if: steps.rebase.outcome == 'success'
+        with:
+          go-version-file: apps/manager-server/go.mod
+          cache-dependency-path: apps/manager-server/go.sum
+
+      - name: Verify the rebased stack
+        id: verify
+        if: steps.rebase.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run type-check
+          npm run test:web
+          (cd apps/manager-server && go test ./...)
+
       - name: Push sync branch and open PR
         if: steps.rebase.outcome == 'success'
         env:
@@ -93,6 +116,11 @@ jobs:
             echo "PR already open"; exit 0
           fi
           notes="$(git log --oneline "${{ steps.tags.outputs.base }}..${{ steps.tags.outputs.target }}" | head -40)"
+          verdict="Checks passed: type-check, web tests, go test."
+          if [[ "${{ steps.verify.outcome }}" != "success" ]]; then
+            verdict="**Checks failed** after the rebase. See the workflow run before merging."
+          fi
           gh pr create --base personal --head "$branch" \
             --title "Sync personal onto ${{ steps.tags.outputs.target }}" \
-            --body "$(printf 'Clean rebase of the personal patch stack from %s onto %s.\n\nUpstream changes (first 40):\n\n```\n%s\n```\n\nMerge with **rebase** or fast-forward so `personal` stays a linear stack on top of the upstream tag, then tag `ench-%s-1` to build the image.' "${{ steps.tags.outputs.base }}" "${{ steps.tags.outputs.target }}" "$notes" "${{ steps.tags.outputs.target }}")"
+            --body "$(printf 'Clean rebase of the personal patch stack from %s onto %s.\n\n%s\n\nUpstream changes (first 40):\n\n```\n%s\n```\n\nMerge with **rebase** or fast-forward so `personal` stays a linear stack on top of the upstream tag, then tag `ench-%s-1` to build the image.' "${{ steps.tags.outputs.base }}" "${{ steps.tags.outputs.target }}" "$verdict" "$notes" "${{ steps.tags.outputs.target }}")"
+          [[ "${{ steps.verify.outcome }}" == "success" ]]
