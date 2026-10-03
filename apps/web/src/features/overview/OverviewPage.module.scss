@@ -170,6 +170,10 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   color: var(--text-primary);
 }
 
+.summaryMuted {
+  color: var(--text-tertiary);
+}
+
 .summaryOf {
   font-size: 13px;
   color: var(--text-tertiary);

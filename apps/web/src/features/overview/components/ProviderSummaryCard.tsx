@@ -28,13 +28,26 @@ export function ProviderSummaryCard({ provider, label, nowMs, locale, active, on
           {enabled} credential{enabled === 1 ? '' : 's'}
         </span>
       </div>
-      <div className={styles.summaryWindowLabel}>{provider.headlineLabel}</div>
-      <div className={styles.summaryValue}>
-        <span className={styles.summaryBig}>{formatPercentValue(provider.remainingPercent)}</span>
-        <span className={styles.summaryOf}>of {provider.capacityPercent}% left</span>
-      </div>
-      <SegmentedBar segments={provider.segments} />
-      <ResetLine resetAtMs={provider.nextResetAtMs} nowMs={nowMs} locale={locale} emptyText="No reset scheduled" />
+      {provider.capacityPercent === 0 ? (
+        <>
+          <div className={styles.summaryWindowLabel}>No quota observed</div>
+          <div className={styles.summaryValue}>
+            <span className={`${styles.summaryBig} ${styles.summaryMuted}`}>--</span>
+          </div>
+          <SegmentedBar segments={provider.segments} />
+          <div className={styles.reset}>Refresh to fetch quota</div>
+        </>
+      ) : (
+        <>
+          <div className={styles.summaryWindowLabel}>{provider.headlineLabel}</div>
+          <div className={styles.summaryValue}>
+            <span className={styles.summaryBig}>{formatPercentValue(provider.remainingPercent)}</span>
+            <span className={styles.summaryOf}>of {provider.capacityPercent}% left</span>
+          </div>
+          <SegmentedBar segments={provider.segments} />
+          <ResetLine resetAtMs={provider.nextResetAtMs} nowMs={nowMs} locale={locale} emptyText="No reset scheduled" />
+        </>
+      )}
     </button>
   );
 }

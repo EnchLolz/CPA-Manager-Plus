@@ -94,6 +94,41 @@ describe('selectDisplayWindows', () => {
     expect(windows[0].remainingPercent).toBe(58);
   });
 
+  it('leads with the longest model-scoped window and keeps group names', () => {
+    const grouped = (id: string, seconds: number, group: string) =>
+      definition({
+        providerWindowId: id,
+        label: seconds === 18_000 ? '5-hour limit' : 'Weekly limit',
+        kind: seconds === 18_000 ? 'five_hour' : 'weekly',
+        durationSeconds: seconds,
+        usedPercent: 10,
+        modelScope: { kind: 'family', key: group, complete: true },
+        display: {
+          key: id,
+          label: '',
+          kind: seconds === 18_000 ? 'five_hour' : 'weekly',
+          remainingPercent: null,
+          usedPercent: null,
+          resetLabel: '-',
+          resetAccuracy: 'exact',
+          limitWindowSeconds: seconds,
+          resetAtMs: null,
+          fromMs: null,
+          toMs: null,
+          groupLabel: group,
+          modelScope: { kind: 'family', key: group, complete: true },
+          windowMode: 'fixed',
+        },
+      });
+    const windows = selectDisplayWindows(
+      [grouped('g1-5h', 18_000, 'Gemini models'), grouped('g2-5h', 18_000, 'Claude and GPT models'), grouped('g1-week', 604_800, 'Gemini models')],
+      NOW
+    );
+    expect(windows[0].id).toBe('g1-week');
+    expect(windows[0].label).toBe('Weekly limit · Gemini models');
+    expect(windows).toHaveLength(3);
+  });
+
   it('drops billing windows without a percentage and ignores past resets', () => {
     const windows = selectDisplayWindows(
       [

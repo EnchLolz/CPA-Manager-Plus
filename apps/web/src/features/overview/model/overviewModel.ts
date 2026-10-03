@@ -99,12 +99,18 @@ const resolveResetAt = (definition: AccountQuotaWindowDefinition, nowMs: number)
     : null;
 };
 
+const windowLabel = (definition: AccountQuotaWindowDefinition): string => {
+  const base = definition.label || labelForSnapshotWindowId(definition.providerWindowId);
+  const group = definition.display.groupLabel?.trim();
+  return group && !base.includes(group) ? `${base} · ${group}` : base;
+};
+
 const toOverviewWindow = (
   definition: AccountQuotaWindowDefinition,
   nowMs: number
 ): OverviewWindow => ({
   id: definition.providerWindowId,
-  label: definition.label || labelForSnapshotWindowId(definition.providerWindowId),
+  label: windowLabel(definition),
   remainingPercent: resolveRemaining(definition),
   resetAtMs: resolveResetAt(definition, nowMs),
   durationSeconds: definition.durationSeconds ?? definition.display.limitWindowSeconds ?? null,
@@ -114,11 +120,14 @@ const toOverviewWindow = (
 
 const byDuration = (a: OverviewWindow, b: OverviewWindow) =>
   (a.durationSeconds ?? Number.MAX_SAFE_INTEGER) - (b.durationSeconds ?? Number.MAX_SAFE_INTEGER);
+const byDurationDesc = (a: OverviewWindow, b: OverviewWindow) =>
+  (b.durationSeconds ?? -1) - (a.durationSeconds ?? -1);
 
 /**
- * Pick the windows worth showing on one row: the model-family weekly window
- * first (it is the one that actually gates heavy use), then account-wide
- * windows shortest to longest. Duplicated ids collapse to the freshest entry.
+ * Pick the windows worth showing on one row: the longest model-scoped window
+ * first (the weekly family limit is what actually gates heavy use), then
+ * account-wide windows shortest to longest, then any remaining model-scoped
+ * windows. Duplicated ids collapse to the freshest entry.
  */
 export const selectDisplayWindows = (
   definitions: AccountQuotaWindowDefinition[],
@@ -134,17 +143,17 @@ export const selectDisplayWindows = (
     }
   }
   const windows = Array.from(byId.values());
-  const model = windows.filter((w) => w.modelScoped).sort(byDuration);
+  const model = windows.filter((w) => w.modelScoped).sort(byDurationDesc);
   const standard = windows.filter((w) => !w.modelScoped).sort(byDuration);
   return [...model.slice(0, 1), ...standard, ...model.slice(1)].slice(0, MAX_WINDOWS_PER_CREDENTIAL);
 };
 
 /** The window that best represents "how much of this subscription is left". */
 export const selectHeadlineWindow = (windows: OverviewWindow[]): OverviewWindow | null => {
-  const model = windows.find((w) => w.modelScoped);
-  if (model) return model;
-  const standard = windows.filter((w) => !w.modelScoped).sort(byDuration);
-  return standard.length ? standard[standard.length - 1] : null;
+  const model = windows.filter((w) => w.modelScoped).sort(byDurationDesc);
+  if (model.length) return model[0];
+  const standard = windows.filter((w) => !w.modelScoped).sort(byDurationDesc);
+  return standard.length ? standard[0] : null;
 };
 
 export const buildOverviewCredential = (
