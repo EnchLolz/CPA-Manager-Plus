@@ -140,6 +140,9 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 .summaryName {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
@@ -187,9 +190,9 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 .track {
   position: relative;
   flex: 1 1 0;
-  height: 5px;
+  height: 6px;
   border-radius: 3px;
-  background: var(--data-track-bg, rgba(127, 127, 127, 0.25));
+  background: rgba(127, 127, 127, 0.22);
   overflow: hidden;
 }
 
@@ -203,10 +206,72 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   transition: width 0.3s ease;
 }
 
-.tone_good { background: var(--data-green-base); }
-.tone_warn { background: var(--data-amber-base); }
-.tone_bad { background: var(--data-red-base); }
+.tone_good { background: var(--data-green-base); box-shadow: 0 0 6px color-mix(in srgb, var(--data-green-base) 55%, transparent); }
+.tone_warn { background: var(--data-amber-base); box-shadow: 0 0 6px color-mix(in srgb, var(--data-amber-base) 55%, transparent); }
+.tone_bad { background: var(--data-red-base); box-shadow: 0 0 6px color-mix(in srgb, var(--data-red-base) 55%, transparent); }
 .tone_none { background: transparent; }
+
+.text_good { color: var(--data-green-base); }
+.text_warn { color: var(--data-amber-base); }
+.text_bad { color: var(--data-red-base); }
+.text_none { color: var(--text-tertiary); }
+
+.bg_good { background: var(--data-green-base); box-shadow: 0 0 6px var(--data-green-base); }
+.bg_warn { background: var(--data-amber-base); box-shadow: 0 0 6px var(--data-amber-base); }
+.bg_bad { background: var(--data-red-base); box-shadow: 0 0 6px var(--data-red-base); }
+.bg_none { background: var(--text-tertiary); opacity: 0.5; }
+
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+
+  img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+}
+
+.glyphSm {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 11px;
+
+  img {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+.statusDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.tabCount {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--app-surface-muted);
+  color: var(--text-tertiary);
+}
 
 .reset {
   display: flex;
@@ -298,7 +363,6 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 .rank {
   flex: 0 0 auto;
   padding: 1px 6px;
-  margin-right: 8px;
   border-radius: 4px;
   font-family: $mono;
   font-size: 11px;
@@ -395,6 +459,7 @@ $mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 .fileName {
   display: flex;
   align-items: center;
+  gap: 8px;
   font-family: $mono;
   font-size: 14px;
   color: var(--text-primary);

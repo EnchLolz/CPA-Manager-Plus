@@ -12,6 +12,7 @@ import { canRefreshProvider, useOverviewData } from './hooks/useOverviewData';
 import { ProviderSummaryCard } from './components/ProviderSummaryCard';
 import { CredentialRow } from './components/CredentialRow';
 import { RoutingCard } from './components/RoutingCard';
+import { ProviderGlyph } from './components/ProviderGlyph';
 import styles from './OverviewPage.module.scss';
 
 const SHOW_EMAILS_KEY = 'overview.showEmails';
@@ -29,10 +30,23 @@ export function OverviewPage() {
   const locale = i18n.language || 'en-US';
   const tabs = useMemo(
     () => [
-      { id: 'all', label: `All ${data.credentials.length}` },
+      {
+        id: 'all',
+        label: (
+          <span className={styles.tabLabel}>
+            All<span className={styles.tabCount}>{data.credentials.length}</span>
+          </span>
+        ),
+      },
       ...data.providers.map((p) => ({
         id: p.provider,
-        label: `${getProviderLabel(p.provider, t)} ${p.credentials.length}`,
+        label: (
+          <span className={styles.tabLabel}>
+            <ProviderGlyph provider={p.provider} size="sm" />
+            {getProviderLabel(p.provider, t)}
+            <span className={styles.tabCount}>{p.credentials.length}</span>
+          </span>
+        ),
       })),
     ],
     [data.credentials.length, data.providers, t]

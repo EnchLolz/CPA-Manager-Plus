@@ -1,5 +1,6 @@
 import type { OverviewProvider } from '../model/overviewModel';
-import { formatPercentValue } from '../model/overviewModel';
+import { formatPercentValue, toneForRemaining } from '../model/overviewModel';
+import { ProviderGlyph } from './ProviderGlyph';
 import { SegmentedBar } from './UsageBar';
 import { ResetLine } from './ResetLine';
 import styles from '../OverviewPage.module.scss';
@@ -23,7 +24,10 @@ export function ProviderSummaryCard({ provider, label, nowMs, locale, active, on
       aria-pressed={active}
     >
       <div className={styles.summaryHead}>
-        <span className={styles.summaryName}>{label}</span>
+        <span className={styles.summaryName}>
+          <ProviderGlyph provider={provider.provider} />
+          {label}
+        </span>
         <span className={styles.summaryCount}>
           {enabled} credential{enabled === 1 ? '' : 's'}
         </span>
@@ -41,7 +45,13 @@ export function ProviderSummaryCard({ provider, label, nowMs, locale, active, on
         <>
           <div className={styles.summaryWindowLabel}>{provider.headlineLabel}</div>
           <div className={styles.summaryValue}>
-            <span className={styles.summaryBig}>{formatPercentValue(provider.remainingPercent)}</span>
+            <span
+              className={`${styles.summaryBig} ${styles[`text_${toneForRemaining(
+                provider.remainingPercent === null ? null : provider.remainingPercent / (provider.capacityPercent / 100)
+              )}`]}`}
+            >
+              {formatPercentValue(provider.remainingPercent)}
+            </span>
             <span className={styles.summaryOf}>of {provider.capacityPercent}% left</span>
           </div>
           <SegmentedBar segments={provider.segments} />

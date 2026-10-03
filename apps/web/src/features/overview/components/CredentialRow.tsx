@@ -2,8 +2,10 @@ import { IconRefreshCw } from '@/components/ui/icons';
 import {
   formatPercentValue,
   maskCredentialName,
+  toneForRemaining,
   type OverviewCredential,
 } from '../model/overviewModel';
+import { ProviderGlyph } from './ProviderGlyph';
 import { UsageBar } from './UsageBar';
 import { ResetLine } from './ResetLine';
 import styles from '../OverviewPage.module.scss';
@@ -32,10 +34,24 @@ export function CredentialRow({
   const name = showEmails ? credential.fileName : maskCredentialName(credential.fileName);
   const quotaState = credential.raw.quota;
   const errorText = quotaState.status === 'error' ? quotaState.error : null;
+  const statusTone = credential.disabled
+    ? 'none'
+    : errorText
+      ? 'bad'
+      : toneForRemaining(credential.headline?.remainingPercent ?? null);
+  const statusTitle = credential.disabled
+    ? 'Disabled'
+    : errorText
+      ? 'Last refresh failed'
+      : credential.headline
+        ? `${credential.headline.label}: ${formatPercentValue(credential.headline.remainingPercent)} left`
+        : 'No quota observed';
   return (
     <div className={`${styles.row} ${credential.disabled ? styles.rowDisabled : ''}`}>
       <div className={styles.identity}>
         <div className={styles.fileName} title={credential.fileName}>
+          <span className={`${styles.statusDot} ${styles[`bg_${statusTone}`]}`} title={statusTitle} />
+          <ProviderGlyph provider={credential.provider} size="sm" />
           {routingRank !== null && (
             <span className={styles.rank} title="Routing order (earliest weekly reset first)">
               #{routingRank}
@@ -64,7 +80,11 @@ export function CredentialRow({
             <div key={window.id} className={styles.window}>
               <div className={styles.windowHead}>
                 <span className={styles.windowLabel}>{window.label}</span>
-                <span className={styles.windowValue}>{formatPercentValue(window.remainingPercent)}</span>
+                <span
+                  className={`${styles.windowValue} ${styles[`text_${toneForRemaining(window.remainingPercent)}`]}`}
+                >
+                  {formatPercentValue(window.remainingPercent)}
+                </span>
               </div>
               <UsageBar remainingPercent={window.remainingPercent} stale={window.stale} />
               <ResetLine resetAtMs={window.resetAtMs} nowMs={nowMs} locale={locale} />
