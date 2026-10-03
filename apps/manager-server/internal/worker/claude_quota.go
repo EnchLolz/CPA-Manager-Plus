@@ -80,8 +80,20 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 			log.Printf("[claude-quota] account observation failed: %v", err)
 		}
 	}
+	updateClaudeResetPriorityStatus(func(status *ClaudeResetPriorityStatus) {
+		status.Enabled = w.resetPriority
+		status.LastPollAtMS = time.Now().UnixMilli()
+	})
 	if w.resetPriority {
-		return w.applyResetPriority(ctx, setup, files)
+		err := w.applyResetPriority(ctx, setup, files)
+		updateClaudeResetPriorityStatus(func(status *ClaudeResetPriorityStatus) {
+			if err != nil {
+				status.LastError = err.Error()
+			} else {
+				status.LastError = ""
+			}
+		})
+		return err
 	}
 	return nil
 }
@@ -198,6 +210,10 @@ func parseClaudeQuota(raw json.RawMessage, observed int64) ([]quotasvc.WindowInp
 	}
 	add("seven-day", payload["seven_day"], 604800)
 	add("five-hour", payload["five_hour"], 18000)
+	// Model-family weekly windows are what actually gate heavy usage, so persist
+	// them alongside the account-wide windows. IDs match the panel's window keys.
+	add("seven-day-opus", payload["seven_day_opus"], 604800)
+	add("seven-day-sonnet", payload["seven_day_sonnet"], 604800)
 	// Newer Claude payloads expose unscoped base limits in a limits array. Scoped
 	// limits must not be treated as account-wide allowances.
 	var limits []map[string]json.RawMessage

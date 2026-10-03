@@ -60,6 +60,18 @@ func (w *ClaudeQuotaWorker) applyResetPriority(ctx context.Context, setup store.
 	if err != nil {
 		return err
 	}
+	order := make([]ClaudeResetPriorityAccount, 0, len(plan))
+	for _, item := range plan {
+		q := w.weekly[item.file.AuthIndex]
+		order = append(order, ClaudeResetPriorityAccount{
+			Name: item.file.Name, AuthIndex: item.file.AuthIndex, Priority: item.priority,
+			CycleEndMS: *q.CycleEndMS, UsedPercent: *q.UsedPercent,
+		})
+	}
+	updateClaudeResetPriorityStatus(func(status *ClaudeResetPriorityStatus) {
+		status.Order = order
+		status.LastAppliedAtMS = time.Now().UnixMilli()
+	})
 	for _, item := range plan {
 		current, _ := json.Marshal(item.file.Raw["priority"])
 		if string(current) == fmt.Sprint(item.priority) || string(current) == fmt.Sprintf("%q", fmt.Sprint(item.priority)) {
