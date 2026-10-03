@@ -1,0 +1,98 @@
+name: Personal upstream sync
+
+# Personal fork only. Once a day: mirror upstream main, find the newest stable
+# upstream tag, and rebase the personal patch stack onto it. A clean rebase
+# becomes a PR into `personal`; a conflict becomes an issue with the details.
+
+on:
+  schedule:
+    - cron: '23 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: personal-upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: https://github.com/seakee/CPA-Manager-Plus.git
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: personal
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch upstream
+        run: |
+          set -euo pipefail
+          git config user.name "personal-sync[bot]"
+          git config user.email "personal-sync@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM"
+          git fetch upstream --tags main
+
+      - name: Mirror upstream main
+        run: git push origin upstream/main:main
+
+      - name: Resolve base and target tags
+        id: tags
+        run: |
+          set -euo pipefail
+          base="$(git describe --tags --abbrev=0 --match 'v*' personal)"
+          target="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "target=${target}" >> "$GITHUB_OUTPUT"
+          echo "Base ${base}, newest stable upstream ${target}"
+
+      - name: Stop when already current
+        if: steps.tags.outputs.base == steps.tags.outputs.target
+        run: echo "personal already sits on ${{ steps.tags.outputs.target }}"
+
+      - name: Rebase personal onto the new tag
+        id: rebase
+        if: steps.tags.outputs.base != steps.tags.outputs.target
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git checkout -B "sync/${{ steps.tags.outputs.target }}" personal
+          git rebase --onto "${{ steps.tags.outputs.target }}" "${{ steps.tags.outputs.base }}"
+
+      - name: Open conflict issue
+        if: steps.rebase.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          conflicts="$(git diff --name-only --diff-filter=U || true)"
+          git rebase --abort || true
+          title="Upstream sync to ${{ steps.tags.outputs.target }} needs manual rebase"
+          if gh issue list --state open --search "\"$title\" in:title" --json number --jq 'length' | grep -qv '^0$'; then
+            echo "issue already open"; exit 0
+          fi
+          gh issue create --title "$title" --body "$(printf 'Rebasing \`personal\` from %s onto %s hit conflicts in:\n\n```\n%s\n```\n\nRun locally:\n\n```\ngit fetch upstream --tags\ngit rebase --onto %s %s personal\n```' "${{ steps.tags.outputs.base }}" "${{ steps.tags.outputs.target }}" "$conflicts" "${{ steps.tags.outputs.target }}" "${{ steps.tags.outputs.base }}")"
+          exit 1
+
+      - name: Push sync branch and open PR
+        if: steps.rebase.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          branch="sync/${{ steps.tags.outputs.target }}"
+          git push --force-with-lease origin "$branch"
+          if gh pr list --head "$branch" --base personal --state open --json number --jq 'length' | grep -qv '^0$'; then
+            echo "PR already open"; exit 0
+          fi
+          notes="$(git log --oneline "${{ steps.tags.outputs.base }}..${{ steps.tags.outputs.target }}" | head -40)"
+          gh pr create --base personal --head "$branch" \
+            --title "Sync personal onto ${{ steps.tags.outputs.target }}" \
+            --body "$(printf 'Clean rebase of the personal patch stack from %s onto %s.\n\nUpstream changes (first 40):\n\n```\n%s\n```\n\nMerge with **rebase** or fast-forward so `personal` stays a linear stack on top of the upstream tag, then tag `ench-%s-1` to build the image.' "${{ steps.tags.outputs.base }}" "${{ steps.tags.outputs.target }}" "$notes" "${{ steps.tags.outputs.target }}")"
