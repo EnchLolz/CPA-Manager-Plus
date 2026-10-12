@@ -810,6 +810,57 @@ describe('fetchCodexQuota', () => {
 });
 
 describe('fetchClaudeQuota', () => {
+  it.each([
+    {
+      name: 'Team workspace when the account also has personal Max',
+      account: { has_claude_max: true, has_claude_pro: false },
+      organization: { organization_type: 'claude_team', subscription_status: 'active' },
+      expected: 'plan_team',
+    },
+    {
+      name: 'Team workspace when the account also has personal Pro',
+      account: { has_claude_max: false, has_claude_pro: true },
+      organization: { organization_type: 'claude_team', subscription_status: 'active' },
+      expected: 'plan_team',
+    },
+    {
+      name: 'personal Max workspace on the same account',
+      account: { has_claude_max: true, has_claude_pro: false },
+      organization: { organization_type: 'claude_max', subscription_status: 'active' },
+      expected: 'plan_max',
+    },
+    {
+      name: 'personal Max when organization details are unavailable',
+      account: { has_claude_max: true, has_claude_pro: false },
+      organization: undefined,
+      expected: 'plan_max',
+    },
+  ])('identifies the $name', async ({ account, organization, expected }) => {
+    mocks.request
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { five_hour: { utilization: 12, resets_at: '2026-07-01T10:00:00Z' } },
+      })
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { account, organization },
+      });
+
+    const result = await fetchClaudeQuota(
+      { name: 'claude-workspace.json', type: 'claude', authIndex: 'claude-workspace' },
+      t
+    );
+
+    expect(result.planType).toBe(expected);
+    expect(result.windows[0]).toMatchObject({ id: 'five-hour', usedPercent: 12 });
+  });
+
   it('adds model-scoped weekly limits from the existing usage request', async () => {
     const resetAt = '2026-07-08T21:00:00+00:00';
     mocks.request
