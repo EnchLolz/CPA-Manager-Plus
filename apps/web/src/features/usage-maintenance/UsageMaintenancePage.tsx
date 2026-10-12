@@ -69,10 +69,10 @@ import { UsageMaintenanceCreateView, type GuidedArchiveStage } from './UsageMain
 import { UsageMaintenanceDeleteConfirmation } from './UsageMaintenanceDeleteConfirmation';
 import { UsageMaintenanceTransferView } from './UsageMaintenanceTransferView';
 import {
-  COMPACT_DOCKER_COMPOSE_COMMAND,
   UsageMaintenanceAdvancedView,
   UsageMaintenanceDiagnosticsView,
 } from './UsageMaintenanceCapabilityViews';
+import { COMPACT_DOCKER_COMPOSE_COMMAND } from './usageMaintenanceCommands';
 import styles from './UsageMaintenancePage.module.scss';
 
 const isUnsupportedError = (error: unknown) => {

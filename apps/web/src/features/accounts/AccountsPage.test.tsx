@@ -13039,7 +13039,7 @@ describe('AccountsPage replacement flows', () => {
     mocks.getAccountWindowUsage.mockImplementation(async (_base, _key, request) => {
       return {
         generated_at_ms: Date.now(),
-        items: request.windows.map((w: any) => ({
+        items: request.windows.map((w) => ({
           request_key: w.request_key,
           row_key: w.row_key,
           window_key: w.window_key,
@@ -13117,7 +13117,7 @@ describe('AccountsPage replacement flows', () => {
     mocks.getAccountWindowUsage.mockImplementation(async (_base, _key, request) => {
       return {
         generated_at_ms: nowMs,
-        items: request.windows.map((w: any) => ({
+        items: request.windows.map((w) => ({
           request_key: w.request_key,
           row_key: w.row_key,
           window_key: w.window_key,
@@ -17417,7 +17417,7 @@ describe('AccountsPage replacement flows', () => {
       mocks.getAccountWindowUsage.mockImplementation(async (_base, _key, request) => {
         return {
           generated_at_ms: now,
-          items: request.windows.map((w: any) => ({
+          items: request.windows.map((w) => ({
             request_key: w.request_key,
             row_key: w.row_key,
             window_key: w.window_key,
