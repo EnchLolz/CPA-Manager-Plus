@@ -565,7 +565,7 @@ describe('DemoPage', () => {
 
   it('fills the dashboard request health timeline with real dashboard granularity', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-06-29T10:00:00+08:00'));
+    vi.setSystemTime(new Date(2026, 5, 29, 10));
 
     const timeline = getDemoDashboardSummary().today_request_health_timeline;
 
@@ -627,7 +627,7 @@ describe('DemoPage', () => {
 
   it('keeps morning monitoring events inside the request clock and exposes model identities', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-06-29T10:00:00+08:00'));
+    vi.setSystemTime(new Date(2026, 5, 29, 10));
     const requestNow = Date.now();
     const rangeEnd = requestNow - 2 * 60 * 1000;
 
@@ -986,7 +986,7 @@ describe('DemoPage', () => {
 
   it('keeps visible demo dates relative to the current day', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-06-29T10:00:00+08:00'));
+    vi.setSystemTime(new Date(2026, 5, 29, 10));
 
     expect(getDemoServerBuildDate()).toBe('2026-06-29');
     expect(getDemoLatestVersion().buildDate).toBe('2026-06-29');
@@ -998,7 +998,7 @@ describe('DemoPage', () => {
       new Date(2026, 5, 29).getTime()
     );
 
-    vi.setSystemTime(new Date('2026-06-30T10:00:00+08:00'));
+    vi.setSystemTime(new Date(2026, 5, 30, 10));
 
     expect(getDemoServerBuildDate()).toBe('2026-06-30');
     expect(getDemoLatestVersion().buildDate).toBe('2026-06-30');

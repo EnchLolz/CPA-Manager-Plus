@@ -645,7 +645,9 @@ const stopNativeFixtureProcess = (installDir) => {
   }
 };
 
-describe('installer script', () => {
+// Each case drives the real installer through fake binaries, including its own
+// stop/retry sleeps, so several take multiple seconds even on an idle machine.
+describe('installer script', { timeout: 30_000 }, () => {
   it('passes shell syntax validation', () => {
     const result = spawnSync('bash', ['-n', installerPath], {
       cwd: repoRoot,
