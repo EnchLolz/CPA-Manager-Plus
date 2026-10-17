@@ -113,6 +113,24 @@ describe('useQuotaStore persistence', () => {
     });
   });
 
+  it('restores a Claude retry deadline and its previous quota after a page reload', async () => {
+    const { useQuotaStore } = await import('./useQuotaStore');
+    useQuotaStore.getState().setClaudeQuota({
+      throttled: {
+        status: 'error', errorStatus: 429, error: 'Rate limited',
+        authFileKey: 'throttled', authFileIdentityVerified: true,
+        fetchedAtMs: 1_000, failedAtMs: 2_000, retryAtMs: 74_000,
+        windows: [{ id: 'seven-day', label: 'Weekly', usedPercent: 0, resetLabel: 'tomorrow' }],
+      },
+    });
+    vi.resetModules();
+    const { useQuotaStore: hydrated } = await import('./useQuotaStore');
+    expect(hydrated.getState().claudeQuota.throttled).toMatchObject({
+      errorStatus: 429, retryAtMs: 74_000, fetchedAtMs: 1_000,
+      windows: [{ id: 'seven-day', usedPercent: 0 }],
+    });
+  });
+
   it('persists success and error states for every quota provider', async () => {
     const { useQuotaStore } = await import('./useQuotaStore');
 

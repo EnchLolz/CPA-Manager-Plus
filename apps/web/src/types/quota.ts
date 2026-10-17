@@ -311,6 +311,7 @@ export interface CredentialScopedQuotaState {
   authFileIdentityVerified?: boolean;
   fetchedAtMs?: number;
   failedAtMs?: number;
+  retryAtMs?: number;
 }
 
 export interface ClaudeQuotaState extends CredentialScopedQuotaState {

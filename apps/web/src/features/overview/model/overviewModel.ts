@@ -33,6 +33,7 @@ export interface OverviewCredential {
   headline: OverviewWindow | null;
   nextResetAtMs: number | null;
   raw: AccountRow;
+  refreshAtMs?: number;
 }
 
 export interface OverviewSegment {

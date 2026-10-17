@@ -38,7 +38,15 @@ import {
   KIMI_CONFIG,
   XAI_CONFIG,
   type QuotaConfig,
+  getScopedQuotaState,
 } from '@/components/quota/quotaConfigs';
+import { refreshQuotaWithConfig, type QuotaSetter } from '@/components/quota/quotaRefresh';
+import { getCredentialScopedQuotaState } from '@/utils/quota/credentialScope';
+import { overviewQuotaRefreshAtMs } from '@/utils/quota/refreshTiming';
+import {
+  buildProviderCredentialTaskPlan,
+  runProviderCredentialTaskPlan,
+} from '@/utils/quota/providerRefreshScheduler';
 import {
   buildOverviewCredential,
   buildOverviewProviders,
@@ -53,38 +61,32 @@ type Refresher = (file: AuthFileItem, t: TFunction) => Promise<void>;
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
-const errorStatus = (error: unknown): number | undefined =>
-  typeof (error as { status?: unknown })?.status === 'number'
-    ? (error as { status: number }).status
-    : undefined;
-
 const makeRefresher = <TState extends CredentialScopedQuotaState, TData>(
   config: QuotaConfig<TState, TData>,
-  select: (state: QuotaStoreState) => (updater: (prev: Record<string, TState>) => Record<string, TState>) => void
+  select: (state: QuotaStoreState) => { states: Record<string, TState>; setQuota: QuotaSetter<TState> }
 ): Refresher => {
   return async (file, t) => {
-    const set = select(useQuotaStore.getState());
-    const storeKey = config.getStoreKey?.(file) ?? file.name;
-    set((prev) => ({ ...prev, [storeKey]: config.buildLoadingState(file) }));
-    try {
-      const data = await config.fetchQuota(file, t);
-      set((prev) => ({ ...prev, [storeKey]: config.buildSuccessState(data, file, prev[storeKey]) }));
-    } catch (error) {
-      set((prev) => ({
-        ...prev,
-        [storeKey]: config.buildErrorState(errorMessage(error), errorStatus(error), file),
-      }));
-      throw error;
-    }
+    const { states, setQuota } = select(useQuotaStore.getState());
+    const currentState = getScopedQuotaState(config, states, file);
+    if (overviewQuotaRefreshAtMs(config.type, currentState) > Date.now()) return;
+    const { apiBase, managementKey } = useAuthStore.getState();
+    await refreshQuotaWithConfig({
+      config, file, setQuota, t, currentState,
+      requestScope: { apiBase, managementKey },
+      isCurrent: () => {
+        const current = useAuthStore.getState();
+        return current.apiBase === apiBase && current.managementKey === managementKey;
+      },
+    });
   };
 };
 
 const REFRESHERS: Record<string, Refresher> = {
-  claude: makeRefresher(CLAUDE_CONFIG, (s) => s.setClaudeQuota),
-  codex: makeRefresher(CODEX_CONFIG, (s) => s.setCodexQuota),
-  kimi: makeRefresher(KIMI_CONFIG, (s) => s.setKimiQuota),
-  xai: makeRefresher(XAI_CONFIG, (s) => s.setXaiQuota),
-  antigravity: makeRefresher(ANTIGRAVITY_CONFIG, (s) => s.setAntigravityQuota),
+  claude: makeRefresher(CLAUDE_CONFIG, (s) => ({ states: s.claudeQuota, setQuota: s.setClaudeQuota })),
+  codex: makeRefresher(CODEX_CONFIG, (s) => ({ states: s.codexQuota, setQuota: s.setCodexQuota })),
+  kimi: makeRefresher(KIMI_CONFIG, (s) => ({ states: s.kimiQuota, setQuota: s.setKimiQuota })),
+  xai: makeRefresher(XAI_CONFIG, (s) => ({ states: s.xaiQuota, setQuota: s.setXaiQuota })),
+  antigravity: makeRefresher(ANTIGRAVITY_CONFIG, (s) => ({ states: s.antigravityQuota, setQuota: s.setAntigravityQuota })),
 };
 
 export const canRefreshProvider = (provider: string): boolean => provider in REFRESHERS;
@@ -129,10 +131,11 @@ export function useOverviewData(): OverviewData {
   const [lastLoadedAtMs, setLastLoadedAtMs] = useState<number | null>(null);
   const [routing, setRouting] = useState<RoutingStatusByProvider>({});
   const requestSeq = useRef(0);
+  const refreshingKeys = useRef(new Set<string>());
   // One clock for the whole page so relative times stay consistent and pure.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    const id = window.setInterval(() => setNowMs(Date.now()), 1_000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -193,13 +196,15 @@ export function useOverviewData(): OverviewData {
   const refreshCredential = useCallback(
     async (credential: OverviewCredential) => {
       const refresher = REFRESHERS[credential.provider];
-      if (!refresher) return;
+      if (!refresher || refreshingKeys.current.has(credential.key)) return;
+      refreshingKeys.current.add(credential.key);
       setRefreshing((prev) => new Set(prev).add(credential.key));
       try {
         await refresher(credential.raw.raw, t);
       } catch {
         // The error state is already in the store and rendered on the row.
       } finally {
+        refreshingKeys.current.delete(credential.key);
         setRefreshing((prev) => {
           const next = new Set(prev);
           next.delete(credential.key);
@@ -228,7 +233,13 @@ export function useOverviewData(): OverviewData {
         provider: row.provider,
         getLabel: (snapshot) => labelForSnapshotWindowId(snapshot.provider_window_id),
       });
-      return buildOverviewCredential(row, merged, nowMs);
+      return {
+        ...buildOverviewCredential(row, merged, nowMs),
+        refreshAtMs: overviewQuotaRefreshAtMs(
+          row.provider,
+          row.provider === 'claude' ? getCredentialScopedQuotaState(stores.claudeQuota, row.raw) : undefined
+        ),
+      };
     });
   }, [nowMs, rows, snapshots, stores, t, translateQuotaWindowLabel]);
 
@@ -237,9 +248,11 @@ export function useOverviewData(): OverviewData {
   const refreshAll = useCallback(async () => {
     setRefreshingAll(true);
     try {
-      await Promise.allSettled(
-        credentials.filter((c) => !c.disabled && canRefreshProvider(c.provider)).map(refreshCredential)
+      const tasks = buildProviderCredentialTaskPlan(
+        credentials.filter((c) => !c.disabled && canRefreshProvider(c.provider)),
+        { getProviderKey: (c) => c.provider, getCredentialKey: (c) => c.key }
       );
+      await runProviderCredentialTaskPlan(tasks, { perProviderConcurrency: 1 }, ({ item }) => refreshCredential(item));
       await reload();
     } finally {
       setRefreshingAll(false);
@@ -248,17 +261,8 @@ export function useOverviewData(): OverviewData {
 
   useHeaderRefresh(refreshAll);
 
-  // Fetch live quota for every enabled credential once the inventory is in,
-  // so the page is current on open without a manual click.
-  const autoRefreshed = useRef(false);
-  useEffect(() => {
-    if (loading || autoRefreshed.current || credentials.length === 0) return;
-    autoRefreshed.current = true;
-    const targets = credentials.filter((c) => !c.disabled && canRefreshProvider(c.provider));
-    if (targets.length === 0) return;
-    setRefreshingAll(true);
-    void Promise.allSettled(targets.map(refreshCredential)).finally(() => setRefreshingAll(false));
-  }, [credentials, loading, refreshCredential]);
+  // Page loads read persisted observations. Only an explicit refresh queries
+  // providers; repeated browser reloads must not consume their request limits.
 
   void i18n;
 

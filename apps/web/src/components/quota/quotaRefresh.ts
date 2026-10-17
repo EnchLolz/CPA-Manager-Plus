@@ -117,6 +117,10 @@ export const refreshQuotaWithConfig = async <TState, TData>({
           file,
           previousState
         );
+        const retryAtMs = (error as { retryAtMs?: unknown } | null)?.retryAtMs;
+        if (typeof retryAtMs === 'number' && Number.isFinite(retryAtMs)) {
+          state = { ...state, retryAtMs };
+        }
         return {
           ...previous,
           [storeKey]: state,

@@ -35,6 +35,7 @@ export function CredentialRow({
   const name = showEmails ? credential.fileName : maskCredentialName(credential.fileName);
   const quotaState = credential.raw.quota;
   const errorText = quotaState.status === 'error' ? quotaState.error : null;
+  const refreshInSeconds = Math.max(0, Math.ceil(((credential.refreshAtMs ?? 0) - nowMs) / 1_000));
   return (
     <div className={`${styles.row} ${credential.disabled ? styles.rowDisabled : ''}`}>
       <div className={styles.identity}>
@@ -57,8 +58,11 @@ export function CredentialRow({
           )}
           {errorText && (
             <span className={styles.badgeError} title={errorText}>
-              refresh failed
+              {quotaState.errorStatus === 429 ? 'refresh rate limited' : 'refresh failed'}
             </span>
+          )}
+          {errorText && credential.windows.length > 0 && (
+            <span className={styles.badgeMuted}>last known quota</span>
           )}
         </div>
       </div>
@@ -88,11 +92,11 @@ export function CredentialRow({
             type="button"
             className={styles.refreshButton}
             onClick={onRefresh}
-            disabled={refreshing}
+            disabled={refreshing || refreshInSeconds > 0}
             aria-label={`Refresh quota for ${credential.fileName}`}
           >
             <IconRefreshCw size={14} className={refreshing ? styles.spin : undefined} />
-            <span>Refresh quota</span>
+            <span>{refreshInSeconds > 0 ? `Refresh in ${refreshInSeconds}s` : 'Refresh quota'}</span>
           </button>
         )}
       </div>

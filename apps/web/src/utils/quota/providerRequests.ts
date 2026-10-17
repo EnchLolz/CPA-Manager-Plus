@@ -79,6 +79,7 @@ import {
   parseXaiBillingPayload,
 } from './parsers';
 import { resolveCodexChatgptAccountId, resolveCodexPlanType } from './resolvers';
+import { quotaRetryAtMs } from './refreshTiming';
 import { buildCodexQuotaWindowInfos, type CodexQuotaScopeResolution } from './codexQuota';
 import {
   buildCodexResetCreditsRequestHeaders,
@@ -1124,7 +1125,11 @@ export const fetchClaudeQuota = async (
   const result = usageResult.value;
 
   if (result.statusCode < 200 || result.statusCode >= 300) {
-    throw createStatusError(getApiCallErrorMessage(result), result.statusCode);
+    const error = createStatusError(getApiCallErrorMessage(result), result.statusCode);
+    if (result.statusCode === 429) {
+      Object.assign(error, { retryAtMs: quotaRetryAtMs(result.header) });
+    }
+    throw error;
   }
 
   const payload = parseClaudeUsagePayload(result.body ?? result.bodyText);

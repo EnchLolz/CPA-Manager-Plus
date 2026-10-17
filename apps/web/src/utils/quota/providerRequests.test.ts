@@ -810,6 +810,22 @@ describe('fetchCodexQuota', () => {
 });
 
 describe('fetchClaudeQuota', () => {
+  it('carries the usage endpoint retry deadline instead of treating throttling as exhausted quota', async () => {
+    mocks.request
+      .mockResolvedValueOnce({
+        statusCode: 429, hasStatusCode: true, header: { 'Retry-After': ['72'] },
+        bodyText: 'Rate limited. Please try again later.', body: null,
+      })
+      .mockResolvedValueOnce({ statusCode: 200, header: {}, body: {}, bodyText: '' });
+    const before = Date.now();
+    const error = await fetchClaudeQuota(
+      { name: 'claude-throttled.json', type: 'claude', authIndex: 'claude-throttled' }, t
+    ).catch((failure: unknown) => failure) as { status: number; retryAtMs: number };
+    expect(error.status).toBe(429);
+    expect(error.retryAtMs).toBeGreaterThanOrEqual(before + 72_000);
+    expect(error.retryAtMs).toBeLessThanOrEqual(Date.now() + 72_000);
+  });
+
   it.each([
     {
       name: 'Team workspace when the account also has personal Max',

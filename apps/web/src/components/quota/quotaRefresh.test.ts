@@ -157,6 +157,21 @@ describe('refreshQuotaWithConfig', () => {
     });
   });
 
+  it('persists the provider retry deadline together with the previous Claude quota', async () => {
+    const previousState = CLAUDE_CONFIG.buildSuccessState(claudeData, claudeFile);
+    const storeKey = getQuotaCredentialStoreKey(claudeFile);
+    useQuotaStore.getState().setClaudeQuota({ [storeKey]: previousState });
+    const retryAtMs = Date.now() + 72_000;
+    vi.mocked(fetchClaudeQuota).mockRejectedValue(
+      Object.assign(new Error('Rate limited'), { status: 429, retryAtMs })
+    );
+    await runRefresh(CLAUDE_CONFIG, claudeFile, useQuotaStore.getState().setClaudeQuota, previousState);
+    expect(useQuotaStore.getState().claudeQuota[storeKey]).toMatchObject({
+      status: 'error', errorStatus: 429, retryAtMs, windows: previousState.windows,
+      fetchedAtMs: previousState.fetchedAtMs,
+    });
+  });
+
   it('does not commit a response after the request becomes stale', async () => {
     let current = true;
     vi.mocked(fetchCodexQuota).mockResolvedValue(codexData(40));
