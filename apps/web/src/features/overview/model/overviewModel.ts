@@ -124,27 +124,32 @@ const byDuration = (a: OverviewWindow, b: OverviewWindow) =>
 const byDurationDesc = (a: OverviewWindow, b: OverviewWindow) =>
   (b.durationSeconds ?? -1) - (a.durationSeconds ?? -1);
 
-/** Longest window wins; a model-scoped window beats an account-wide one of equal length. */
+/**
+ * Longest window wins; an account-wide window beats a model-scoped one of equal
+ * length, since it caps every model and is the window routing ranks by.
+ */
 const byHeadlinePreference = (a: OverviewWindow, b: OverviewWindow) => {
   const duration = byDurationDesc(a, b);
   if (duration !== 0) return duration;
-  return Number(b.modelScoped) - Number(a.modelScoped);
+  return Number(a.modelScoped) - Number(b.modelScoped);
 };
 
 /**
  * Pick the windows worth showing on one row: the headline window first (the
  * longest limit, which is what actually gates sustained use), then the other
  * account-wide windows shortest to longest, then remaining model-scoped
- * windows. Duplicated ids collapse to the freshest entry.
+ * windows, then billing windows. Duplicated ids collapse to the freshest entry.
  */
 export const selectDisplayWindows = (
   definitions: AccountQuotaWindowDefinition[],
   nowMs = Date.now()
 ): OverviewWindow[] => {
   const byId = new Map<string, OverviewWindow>();
+  const billingIds = new Set<string>();
   for (const definition of definitions) {
     if (!isDisplayable(definition)) continue;
     const window = toOverviewWindow(definition, nowMs);
+    if (definition.kind === 'billing') billingIds.add(window.id);
     const existing = byId.get(window.id);
     if (!existing || (existing.stale && !window.stale) || (existing.remainingPercent === null && window.remainingPercent !== null)) {
       byId.set(window.id, window);
@@ -154,9 +159,11 @@ export const selectDisplayWindows = (
   const headline = selectHeadlineWindow(windows);
   if (!headline) return [];
   const rest = windows.filter((w) => w !== headline);
-  const standard = rest.filter((w) => !w.modelScoped).sort(byDuration);
-  const model = rest.filter((w) => w.modelScoped).sort(byDurationDesc);
-  return [headline, ...standard, ...model].slice(0, MAX_WINDOWS_PER_CREDENTIAL);
+  const billing = rest.filter((w) => billingIds.has(w.id));
+  const limits = rest.filter((w) => !billingIds.has(w.id));
+  const standard = limits.filter((w) => !w.modelScoped).sort(byDuration);
+  const model = limits.filter((w) => w.modelScoped).sort(byDurationDesc);
+  return [headline, ...standard, ...model, ...billing].slice(0, MAX_WINDOWS_PER_CREDENTIAL);
 };
 
 /** The window that best represents "how much of this subscription is left". */

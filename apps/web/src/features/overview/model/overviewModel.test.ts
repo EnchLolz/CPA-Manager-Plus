@@ -82,7 +82,7 @@ const row = (overrides: Partial<AccountRow> & { selectionKey: string }): Account
   }) as AccountRow;
 
 describe('selectDisplayWindows', () => {
-  it('puts the model-family weekly window first, then account windows shortest to longest', () => {
+  it('leads with the account-wide weekly window over a model-family weekly window', () => {
     const windows = selectDisplayWindows(
       [
         definition({ providerWindowId: 'seven-day', label: '7-day limit', usedPercent: 25 }),
@@ -91,9 +91,22 @@ describe('selectDisplayWindows', () => {
       ],
       NOW
     );
-    expect(windows.map((w) => w.id)).toEqual(['seven-day-opus', 'five-hour', 'seven-day']);
-    expect(windows[0].modelScoped).toBe(true);
-    expect(windows[0].remainingPercent).toBe(58);
+    expect(windows.map((w) => w.id)).toEqual(['seven-day', 'five-hour', 'seven-day-opus']);
+    expect(windows[0].modelScoped).toBe(false);
+    expect(windows[0].remainingPercent).toBe(75);
+  });
+
+  it('keeps a model weekly window ahead of a billing window when slots run out', () => {
+    const windows = selectDisplayWindows(
+      [
+        definition({ providerWindowId: 'extra-usage', label: 'Extra Usage', kind: 'billing', durationSeconds: null, usedPercent: 91 }),
+        definition({ providerWindowId: 'seven-day', label: '7-day limit', usedPercent: 25 }),
+        definition({ providerWindowId: 'five-hour', label: '5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 0 }),
+        definition({ providerWindowId: 'seven-day-opus', label: '7-day Opus', usedPercent: 42 }),
+      ],
+      NOW
+    );
+    expect(windows.map((w) => w.id)).toEqual(['seven-day', 'five-hour', 'seven-day-opus']);
   });
 
   it('leads with the weekly limit for codex even when a model-scoped 5-hour window exists', () => {
@@ -196,6 +209,27 @@ describe('sortCredentials / buildOverviewProviders', () => {
     expect(claude.capacityPercent).toBe(200);
     expect(claude.nextResetAtMs).toBe(NOW + DAY);
     expect(claude.segments.map((s) => s.remainingPercent)).toEqual([60, 90]);
+  });
+
+  it('summarizes Claude by the account weekly limit, not a scoped model limit', () => {
+    const fable = (used: number, resetInDays: number) =>
+      definition({
+        providerWindowId: 'weekly-scoped-fable',
+        label: 'Fable',
+        usedPercent: used,
+        cycleEndMs: NOW + resetInDays * DAY,
+        modelScope: { kind: 'models', models: ['claude-fable-5-1'], complete: true },
+      });
+    const weekly = (used: number, resetInDays: number) =>
+      definition({ providerWindowId: 'seven-day', label: '7-day limit', usedPercent: used, cycleEndMs: NOW + resetInDays * DAY });
+    const exhausted = buildOverviewCredential(row({ selectionKey: 'exhausted' }), [fable(20, 1), weekly(100, 1)], NOW);
+    const open = buildOverviewCredential(row({ selectionKey: 'open' }), [fable(2, 5), weekly(85, 5)], NOW);
+
+    const [claude] = buildOverviewProviders([exhausted, open]);
+    expect(claude.headlineLabel).toBe('7-day limit');
+    expect(claude.remainingPercent).toBe(15);
+    expect(claude.credentials.map((c) => c.key)).toEqual(['open', 'exhausted']);
+    expect(claude.segments.map((s) => s.remainingPercent)).toEqual([15, 0]);
   });
 });
 
