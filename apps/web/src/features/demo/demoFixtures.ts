@@ -6228,14 +6228,16 @@ const getDemoQuotaStoreStateByFileName = (
       windows: [
         {
           id: 'five-hour',
-          label: '5 小时限额',
+          label: '5-hour limit',
+          labelKey: 'codex_quota.primary_window',
           usedPercent: 36,
           ...demoQuotaReset(2 * hour + 18 * minute, baseNow),
           limitWindowSeconds: 18_000,
         },
         {
           id: 'weekly',
-          label: '周限额',
+          label: 'Weekly limit',
+          labelKey: 'codex_quota.secondary_window',
           usedPercent: 41,
           ...demoQuotaReset(3 * day + 8 * hour, baseNow),
           limitWindowSeconds: 604_800,
@@ -6256,14 +6258,16 @@ const getDemoQuotaStoreStateByFileName = (
       windows: [
         {
           id: 'five-hour',
-          label: '5 小时限额',
+          label: '5-hour limit',
+          labelKey: 'codex_quota.primary_window',
           usedPercent: 48,
           ...demoQuotaReset(3 * hour + 15 * minute, baseNow),
           limitWindowSeconds: 18_000,
         },
         {
           id: 'weekly',
-          label: '周限额',
+          label: 'Weekly limit',
+          labelKey: 'codex_quota.secondary_window',
           usedPercent: 56,
           ...demoQuotaReset(4 * day + 12 * hour, baseNow),
           limitWindowSeconds: 604_800,
@@ -6303,21 +6307,24 @@ const getDemoQuotaStoreStateByFileName = (
       windows: [
         {
           id: 'five-hour',
-          label: '5 小时限额',
+          label: '5-hour limit',
+          labelKey: 'codex_quota.primary_window',
           usedPercent: 88,
           ...demoQuotaReset(2 * hour + 45 * minute, baseNow),
           limitWindowSeconds: 18_000,
         },
         {
           id: 'weekly',
-          label: '周限额',
+          label: 'Weekly limit',
+          labelKey: 'codex_quota.secondary_window',
           usedPercent: 68,
           ...demoQuotaReset(5 * day + 6 * hour, baseNow),
           limitWindowSeconds: 604_800,
         },
         {
           id: 'monthly',
-          label: '月限额',
+          label: 'Monthly limit',
+          labelKey: 'codex_quota.monthly_window',
           usedPercent: 35,
           ...demoQuotaReset(24 * day + 6 * hour, baseNow),
           limitWindowSeconds: 2_592_000,
@@ -6344,14 +6351,16 @@ const getDemoQuotaStoreStateByFileName = (
       windows: [
         {
           id: 'five-hour',
-          label: '5 小时限额',
+          label: '5-hour limit',
+          labelKey: 'codex_quota.primary_window',
           usedPercent: 100,
           ...demoQuotaReset(68 * minute, baseNow),
           limitWindowSeconds: 18_000,
         },
         {
           id: 'weekly',
-          label: '周限额',
+          label: 'Weekly limit',
+          labelKey: 'codex_quota.secondary_window',
           usedPercent: 72,
           ...demoQuotaReset(2 * day + 4 * hour, baseNow),
           limitWindowSeconds: 604_800,
