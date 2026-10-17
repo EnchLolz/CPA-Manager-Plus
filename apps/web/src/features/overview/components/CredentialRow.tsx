@@ -46,7 +46,7 @@ export function CredentialRow({
               #{routingRank}
             </span>
           )}
-          {name}
+          <span className={styles.fileNameText}>{name}</span>
         </div>
         <div className={styles.meta}>
           {formatPlanType(credential.planType) && (
