@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SharedKeysCard } from './SharedKeysCard';
+import { isDemoMode } from '@/features/demo/demoMode';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { usageServiceApi, type ApiKeyAlias } from '@/services/api/usageService';
@@ -840,6 +842,9 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
         <div className="hint">{t('config_management.visual.api_keys.alias_unavailable')}</div>
       ) : null}
 
+      {managerHostedPanel && featureAvailability.managerServiceAvailable && !isDemoMode() && (
+        <SharedKeysCard serviceBase={featureAvailability.managerServiceBase} disabled={disabled} />
+      )}
       <Modal
         open={modalOpen}
         onClose={closeModal}

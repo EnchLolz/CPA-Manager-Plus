@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpaauthfiles"
@@ -14,7 +15,7 @@ func TestPlanCodexTierPrioritiesPrefersPlusThenPro(t *testing.T) {
 		{Name: "codex-d@x.com-plus.json", Provider: "codex", AuthIndex: "4", Disabled: true, Raw: map[string]any{"plan_type": "plus"}},
 		{Name: "claude-e@x.com.json", Provider: "claude", AuthIndex: "5", Raw: map[string]any{}},
 	}
-	plan := planCodexTierPriorities(files, parseCodexTierOrder(""))
+	plan := planCodexTierPriorities(files, parseCodexTierOrder(""), "")
 	if len(plan) != 3 {
 		t.Fatalf("expected 3 enabled codex credentials, got %d", len(plan))
 	}
@@ -39,7 +40,7 @@ func TestPlanCodexTierPrioritiesHonorsCustomOrderAndUnknownTier(t *testing.T) {
 		{Name: "codex-a-pro.json", Provider: "codex", Raw: map[string]any{}},
 		{Name: "codex-b-plus.json", Provider: "codex", Raw: map[string]any{}},
 	}
-	plan := planCodexTierPriorities(files, parseCodexTierOrder("pro, plus"))
+	plan := planCodexTierPriorities(files, parseCodexTierOrder("pro, plus"), "")
 	got := []string{plan[0].tier, plan[1].tier, plan[2].tier}
 	if got[0] != "pro" || got[1] != "plus" || got[2] != "unknown" {
 		t.Fatalf("unexpected order %v", got)
@@ -49,6 +50,10 @@ func TestPlanCodexTierPrioritiesHonorsCustomOrderAndUnknownTier(t *testing.T) {
 func TestCurrentPriorityReadsNumbersAndStrings(t *testing.T) {
 	if p, ok := currentPriority(cpaauthfiles.File{Raw: map[string]any{"priority": float64(20)}}); !ok || p != 20 {
 		t.Fatalf("float priority: got %d %v", p, ok)
+	}
+	// The auth-file client decodes with UseNumber; this is what live polls see.
+	if p, ok := currentPriority(cpaauthfiles.File{Raw: map[string]any{"priority": json.Number("40")}}); !ok || p != 40 {
+		t.Fatalf("json.Number priority: got %d %v", p, ok)
 	}
 	if p, ok := currentPriority(cpaauthfiles.File{Raw: map[string]any{"priority": "30"}}); !ok || p != 30 {
 		t.Fatalf("string priority: got %d %v", p, ok)

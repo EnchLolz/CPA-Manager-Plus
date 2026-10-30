@@ -225,6 +225,21 @@ func Migrate(db *sql.DB) error {
 	}
 
 	statements := []string{
+		`create table if not exists shared_keys (
+            id text primary key,
+            key_hash text not null unique,
+            name text not null,
+            models text not null,
+            created_at integer not null,
+            expires_at integer not null,
+            max_tokens integer not null default 0,
+            max_cost_micros integer not null default 0,
+            used_tokens integer not null default 0,
+            used_cost_micros integer not null default 0,
+            revoked integer not null default 0,
+            in_flight integer not null default 0,
+            blocked integer not null default 0
+        )`,
 		`pragma journal_mode = WAL`,
 		`pragma synchronous = FULL`,
 		`pragma busy_timeout = 5000`,

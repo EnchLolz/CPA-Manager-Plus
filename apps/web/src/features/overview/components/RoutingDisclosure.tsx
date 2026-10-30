@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { IconChevronDown } from '@/components/ui/icons';
 import type { RoutingStatus } from '../services/routingApi';
 import { formatResetParts, maskCredentialName } from '../model/overviewModel';
+import { IconPin } from './PinIcons';
 import styles from '../OverviewPage.module.scss';
 
 interface RoutingDisclosureProps {
@@ -27,13 +28,18 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
   const [open, setOpen] = useState(false);
   const first = status.order[0];
   const name = (value: string) => (showEmails ? value : maskCredentialName(value));
+  const pinEnds = status.pin?.until_ms ? formatResetParts(status.pin.until_ms, nowMs, locale) : null;
   const summary = !status.enabled
     ? 'Routing: static priorities'
     : status.last_error
-      ? 'Routing paused'
-      : first
-        ? `Routing: ${status.strategy}`
-        : 'Routing: waiting for first poll';
+      ? status.pin
+        ? 'Routing: pinned, automatic order paused'
+        : 'Routing paused'
+      : first?.pinned
+        ? `Routing: pinned, then ${status.strategy}`
+        : first
+          ? `Routing: ${status.strategy}`
+          : 'Routing: waiting for first poll';
   return (
     <div className={`${styles.routing} ${open ? styles.routingOpen : ''}`}>
       <button
@@ -46,7 +52,8 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
         <span className={styles.routingSummary}>{summary}</span>
         {status.enabled && first && !open && (
           <span className={styles.routingFirst}>
-            #1 <span className={styles.mono}>{name(first.name)}</span>
+            {first.pinned && <IconPin size={11} />}#1{' '}
+            <span className={styles.mono}>{name(first.name)}</span>
           </span>
         )}
         <IconChevronDown size={14} className={styles.routingChevron} />
@@ -58,6 +65,7 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
               {status.order.map((account, index) => {
                 const reset = account.cycle_end_ms ? formatResetParts(account.cycle_end_ms, nowMs, locale) : null;
                 const detail = [
+                  account.pinned ? (pinEnds ? `pinned until ${pinEnds.absolute}` : 'pinned') : null,
                   account.tier ? account.tier : null,
                   typeof account.used_percent === 'number' ? `${Math.round(100 - account.used_percent)}% left` : null,
                   reset ? `resets ${reset.relative}` : null,

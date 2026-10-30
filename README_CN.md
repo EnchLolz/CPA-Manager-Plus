@@ -119,7 +119,7 @@ CPA / CLIProxyAPI 可以在 `:8317` 直接托管官方 Management Center，也�
 
 想先了解界面？可以打开[在线演示](https://seakee.github.io/CPA-Manager-Plus/)。演示站只使用虚构数据，不是部署或运行模式，不能连接、管理或监控真实 CPA。
 
-CPAMP 管理和观测经过 CPA / CLIProxyAPI 的流量，本身不是模型代理，也不会独立转发模型请求。
+CPAMP 管理和观测经过 CPA / CLIProxyAPI 的流量。普通客户端直接连接 CPA；Full Mode 还提供可选的[共享访问](apps/docs/gateway/shared-access.md)，通过 `/share/v1` 使用带有效期、模型限制和独立用量限额的密钥。
 
 ## 快速开始
 

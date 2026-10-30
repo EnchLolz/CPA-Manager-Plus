@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -33,13 +34,26 @@ type ClaudeQuotaWorker struct {
 	client        *http.Client
 	resetPriority bool
 	weekly        map[string]quotasvc.WindowInput
+	retries       map[string]claudeQuotaRetry
+	retryPath     string
+	now           func() time.Time
+	pin           *RoutingPin
+	pinPath       string
+	pins          chan routingPinRequest
 }
 
 func NewClaudeQuotaWorker(config claudeQuotaConfig, writer claudeQuotaWriter) *ClaudeQuotaWorker {
-	return &ClaudeQuotaWorker{config: config, writer: writer, client: &http.Client{Timeout: 30 * time.Second}, resetPriority: os.Getenv("CLAUDE_RESET_PRIORITY") == "true"}
+	w := &ClaudeQuotaWorker{config: config, writer: writer, client: &http.Client{Timeout: 30 * time.Second}, resetPriority: os.Getenv("CLAUDE_RESET_PRIORITY") == "true", now: time.Now}
+	w.loadRetries(os.Getenv("USAGE_DATA_DIR"))
+	w.pinPath = routingPinPath(os.Getenv("USAGE_DATA_DIR"), "claude")
+	w.pin = loadRoutingPin(w.pinPath)
+	return w
 }
 
 func (w *ClaudeQuotaWorker) Start(ctx context.Context) {
+	if w.resetPriority {
+		w.pins = registerRoutingPinner("claude")
+	}
 	go func() {
 		timer := time.NewTicker(5 * time.Minute)
 		defer timer.Stop()
@@ -47,10 +61,9 @@ func (w *ClaudeQuotaWorker) Start(ctx context.Context) {
 			if err := w.poll(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("[claude-quota] %v", err)
 			}
-			select {
-			case <-ctx.Done():
+			// Pins apply from cached quotas without querying providers again.
+			if !serveRoutingPins(ctx, timer.C, w.pins, w.setPin) {
 				return
-			case <-timer.C:
 			}
 		}
 	}()
@@ -66,6 +79,7 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 		return fmt.Errorf("account inventory unavailable")
 	}
 	w.weekly = make(map[string]quotasvc.WindowInput)
+	defer w.saveRetries()
 	for _, file := range files {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -73,11 +87,20 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 		if !strings.EqualFold(file.Provider, "claude") || file.AuthIndex == "" {
 			continue
 		}
+		if retry := w.retries[file.AuthIndex]; retry.Until.After(w.now()) {
+			continue
+		}
 		// Disabled accounts may still consume quota outside the proxy and are useful
 		// comparison baselines, so include them without enabling them.
 		if err := w.pollAccount(ctx, setup, file); err != nil && ctx.Err() == nil {
+			var limited *claudeQuotaRateLimitError
+			if errors.As(err, &limited) {
+				limited.Until = w.deferAccount(file.AuthIndex, limited.Until)
+			}
 			// Do not log provider bodies, tokens, or account identifiers.
 			log.Printf("[claude-quota] account observation failed: %v", err)
+		} else if err == nil {
+			delete(w.retries, file.AuthIndex)
 		}
 	}
 	updateRoutingStatus("claude", func(status *RoutingStatus) {
@@ -86,15 +109,7 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 		status.LastPollAtMS = time.Now().UnixMilli()
 	})
 	if w.resetPriority {
-		err := w.applyResetPriority(ctx, setup, files)
-		updateRoutingStatus("claude", func(status *RoutingStatus) {
-			if err != nil {
-				status.LastError = err.Error()
-			} else {
-				status.LastError = ""
-			}
-		})
-		return err
+		return w.applyAndReport(ctx, setup, files)
 	}
 	return nil
 }
@@ -115,6 +130,9 @@ func (w *ClaudeQuotaWorker) pollAccount(ctx context.Context, setup store.Setup, 
 		return fmt.Errorf("quota request unavailable")
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusTooManyRequests {
+		return &claudeQuotaRateLimitError{Until: claudeQuotaRetryAfter(res.Header.Get("Retry-After"), w.now())}
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return fmt.Errorf("CPA HTTP %d", res.StatusCode)
 	}
@@ -123,11 +141,20 @@ func (w *ClaudeQuotaWorker) pollAccount(ctx context.Context, setup store.Setup, 
 		return fmt.Errorf("invalid quota response size")
 	}
 	var envelope struct {
-		Status int             `json:"status_code"`
-		Body   json.RawMessage `json:"body"`
+		Status  int                        `json:"status_code"`
+		Body    json.RawMessage            `json:"body"`
+		Header  map[string]json.RawMessage `json:"header"`
+		Headers map[string]json.RawMessage `json:"headers"`
 	}
 	if json.Unmarshal(raw, &envelope) != nil {
 		return fmt.Errorf("invalid quota response")
+	}
+	if envelope.Status == http.StatusTooManyRequests {
+		value := claudeQuotaRetryHeader(envelope.Header)
+		if value == "" {
+			value = claudeQuotaRetryHeader(envelope.Headers)
+		}
+		return &claudeQuotaRateLimitError{Until: claudeQuotaRetryAfter(value, w.now())}
 	}
 	if envelope.Status < 200 || envelope.Status >= 300 {
 		return fmt.Errorf("provider HTTP %d", envelope.Status)
@@ -136,7 +163,7 @@ func (w *ClaudeQuotaWorker) pollAccount(ctx context.Context, setup store.Setup, 
 	if json.Unmarshal(envelope.Body, &bodyText) == nil {
 		envelope.Body = json.RawMessage(bodyText)
 	}
-	observed := time.Now().UnixMilli()
+	observed := w.now().UnixMilli()
 	windows, err := parseClaudeQuota(envelope.Body, observed)
 	if err != nil {
 		return err

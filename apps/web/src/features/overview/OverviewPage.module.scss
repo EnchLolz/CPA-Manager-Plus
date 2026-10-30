@@ -403,6 +403,14 @@ $summary-divider: 1px 0 0 var(--glass-border), 0 1px 0 var(--glass-border);
   color: var(--color-primary);
 }
 
+.rankPinned {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--color-primary);
+  color: var(--primary-contrast, #fff);
+}
+
 .routingName {
   color: var(--text-primary);
   overflow: hidden;
@@ -527,6 +535,14 @@ $summary-divider: 1px 0 0 var(--glass-border), 0 1px 0 var(--glass-border);
   background: var(--app-surface-muted);
 }
 
+.badgePinned {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--app-accent-soft);
+  color: var(--color-primary);
+}
+
 .badgeError {
   background: color-mix(in srgb, var(--data-red-base) 16%, transparent);
   color: var(--data-red-base);
@@ -579,7 +595,9 @@ $summary-divider: 1px 0 0 var(--glass-border), 0 1px 0 var(--glass-border);
 
 .actions {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
 
 .refreshButton {

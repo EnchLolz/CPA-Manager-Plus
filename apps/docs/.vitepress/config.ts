@@ -65,6 +65,7 @@ const zhSidebar: DefaultTheme.Sidebar = [
       { text: 'Manager Server', link: '/operations/manager-server' },
       { text: '准备 CPA 网关', link: '/gateway/configuration' },
       { text: '客户端接入', link: '/gateway/clients' },
+      { text: '临时共享访问', link: '/gateway/shared-access' },
       { text: '配置与数据目录', link: '/operations/configuration' },
       { text: '模型价格', link: '/manual/model-prices' },
     ],
@@ -134,6 +135,7 @@ const enSidebar: DefaultTheme.Sidebar = [
       { text: 'Manager Server', link: '/en/operations/manager-server' },
       { text: 'Prepare The CPA Gateway', link: '/en/gateway/configuration' },
       { text: 'Client Configuration', link: '/en/gateway/clients' },
+      { text: 'Temporary Shared Access', link: '/en/gateway/shared-access' },
       {
         text: 'Configuration And Data Directory',
         link: '/en/operations/configuration',

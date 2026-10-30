@@ -121,7 +121,7 @@ See [Choosing A CPA Panel](https://seakee.github.io/CPA-Manager-Plus/docs/en/gui
 
 Want to preview the interface first? Open the [Live Demo](https://seakee.github.io/CPA-Manager-Plus/). The demo uses fictional data only. It is not a deployment or runtime mode and cannot connect to, manage, or monitor a real CPA instance.
 
-CPAMP manages and observes traffic through CPA / CLIProxyAPI. It is not a replacement proxy and does not forward model traffic by itself.
+CPAMP manages and observes traffic through CPA / CLIProxyAPI. Normal clients connect directly to CPA. Full Mode also offers optional [shared access](apps/docs/en/gateway/shared-access.md) through `/share/v1`, with expiring keys, model restrictions, and per-key usage allowances.
 
 ## Quick Start
 

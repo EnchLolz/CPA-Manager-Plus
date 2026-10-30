@@ -1,6 +1,6 @@
 # Client Configuration
 
-Clients need the CPA address and a normal CPA API Key. Do not point Codex, Claude Code, OpenCode, or OpenAI SDKs at CPAMP; CPAMP observes and manages, but it does not serve normal model traffic.
+Normal clients need the CPA address and a normal CPA API Key. CPAMP does not serve ordinary `/v1` model traffic. For temporary access with individual allowances, Full Mode provides a separate [shared access endpoint](./shared-access.md) at `/share/v1`.
 
 ## General Rules
 

@@ -2,10 +2,13 @@ import { IconRefreshCw } from '@/components/ui/icons';
 import {
   formatPercentValue,
   formatPlanType,
+  formatResetParts,
   maskCredentialName,
   toneForRemaining,
   type OverviewCredential,
+  type RoutingSlot,
 } from '../model/overviewModel';
+import { IconPin, IconPinOff } from './PinIcons';
 import { ProviderGlyph } from './ProviderGlyph';
 import { UsageBar } from './UsageBar';
 import { ResetLine } from './ResetLine';
@@ -18,8 +21,10 @@ interface CredentialRowProps {
   showEmails: boolean;
   refreshing: boolean;
   canRefresh: boolean;
-  routingRank: number | null;
+  routing: RoutingSlot | null;
+  pinBusy: boolean;
   onRefresh: () => void;
+  onPin: (authIndex: string | null) => void;
 }
 
 export function CredentialRow({
@@ -29,21 +34,32 @@ export function CredentialRow({
   showEmails,
   refreshing,
   canRefresh,
-  routingRank,
+  routing,
+  pinBusy,
   onRefresh,
+  onPin,
 }: CredentialRowProps) {
   const name = showEmails ? credential.fileName : maskCredentialName(credential.fileName);
   const quotaState = credential.raw.quota;
   const errorText = quotaState.status === 'error' ? quotaState.error : null;
   const refreshInSeconds = Math.max(0, Math.ceil(((credential.refreshAtMs ?? 0) - nowMs) / 1_000));
+  // The routing worker's applied priority is fresher than the page's file list.
+  const priority = routing?.account.priority ?? credential.priority;
+  const pinned = routing?.account.pinned === true;
+  const pinEnds = pinned ? formatResetParts(routing?.pinUntilMs ?? null, nowMs, locale) : null;
+  // The first account needs no pin, and an exhausted one cannot serve traffic.
+  const canUseFirst = routing !== null && !pinned && routing.rank > 1 && (routing.account.used_percent ?? 0) < 100;
   return (
     <div className={`${styles.row} ${credential.disabled ? styles.rowDisabled : ''}`}>
       <div className={styles.identity}>
         <div className={styles.fileName} title={credential.fileName}>
           <ProviderGlyph provider={credential.provider} size="sm" />
-          {routingRank !== null && (
-            <span className={styles.rank} title="Routing order (earliest weekly reset first)">
-              #{routingRank}
+          {routing && (
+            <span
+              className={`${styles.rank} ${pinned ? styles.rankPinned : ''}`}
+              title={pinned ? 'Pinned first' : `Routing order (${routing.strategy})`}
+            >
+              {pinned && <IconPin size={10} />}#{routing.rank}
             </span>
           )}
           <span className={styles.fileNameText}>{name}</span>
@@ -53,8 +69,11 @@ export function CredentialRow({
             <span className={styles.plan}>{formatPlanType(credential.planType)}</span>
           )}
           {credential.disabled && <span className={styles.badgeMuted}>disabled</span>}
-          {credential.priority !== null && (
-            <span className={styles.badgeMuted}>priority {credential.priority}</span>
+          {priority !== null && <span className={styles.badgeMuted}>priority {priority}</span>}
+          {pinned && (
+            <span className={styles.badgePinned} title={pinEnds ? `Pinned until this account's weekly reset, ${pinEnds.absolute}` : 'Pinned until you unpin it'}>
+              pinned{pinEnds ? ` · ends ${pinEnds.relative}` : ''}
+            </span>
           )}
           {errorText && (
             <span className={styles.badgeError} title={errorText}>
@@ -87,6 +106,35 @@ export function CredentialRow({
         )}
       </div>
       <div className={styles.actions}>
+        {pinned && (
+          <button
+            type="button"
+            className={styles.refreshButton}
+            onClick={() => onPin(null)}
+            disabled={pinBusy}
+            aria-label={`Unpin ${credential.fileName}`}
+          >
+            <IconPinOff size={14} />
+            <span>Unpin</span>
+          </button>
+        )}
+        {canUseFirst && (
+          <button
+            type="button"
+            className={styles.refreshButton}
+            onClick={() => onPin(routing.account.auth_index)}
+            disabled={pinBusy}
+            aria-label={`Use ${credential.fileName} first`}
+            title={
+              routing.account.cycle_end_ms
+                ? 'Route new requests to this account first until its weekly reset'
+                : 'Route new requests to this account first until you unpin it'
+            }
+          >
+            <IconPin size={14} />
+            <span>Use first</span>
+          </button>
+        )}
         {canRefresh && (
           <button
             type="button"

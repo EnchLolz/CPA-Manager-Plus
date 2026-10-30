@@ -8,6 +8,7 @@
 import type { AccountRow } from '@/features/accounts/model/accountRows';
 import type { AccountQuotaWindowDefinition } from '@/features/accounts/model/accountQuotaWindowDefinitions';
 import { getAccountQuotaSemanticGroup } from '@/features/accounts/model/accountQuotaDisplayWindows';
+import type { RoutingAccount, RoutingStatusByProvider } from '../services/routingApi';
 
 export type OverviewTone = 'good' | 'warn' | 'bad' | 'none';
 
@@ -221,6 +222,46 @@ export const sortCredentials = (credentials: OverviewCredential[]): OverviewCred
     if (ar !== br) return ar - br;
     return a.fileName.localeCompare(b.fileName);
   });
+};
+
+/** Where one credential sits in its provider's live routing order. */
+export interface RoutingSlot {
+  rank: number;
+  account: RoutingAccount;
+  strategy: string;
+  pinUntilMs: number | null;
+}
+
+/** Routing slots per provider, keyed by credential file name. Off workers have none. */
+export const buildRoutingSlots = (routing: RoutingStatusByProvider): Map<string, Map<string, RoutingSlot>> => {
+  const byProvider = new Map<string, Map<string, RoutingSlot>>();
+  for (const [provider, status] of Object.entries(routing)) {
+    if (!status.enabled) continue;
+    const pinUntilMs = status.pin?.until_ms ?? null;
+    byProvider.set(
+      provider,
+      new Map(
+        status.order.map((account, index) => [
+          account.name,
+          { rank: index + 1, account, strategy: status.strategy, pinUntilMs },
+        ])
+      )
+    );
+  }
+  return byProvider;
+};
+
+/**
+ * Lists credentials in the order CPA routes them, so a pinned account moves to
+ * the top. Credentials outside the routing order keep their place after it.
+ */
+export const orderByRoutingRank = (
+  credentials: OverviewCredential[],
+  slots: Map<string, RoutingSlot> | undefined
+): OverviewCredential[] => {
+  if (!slots || slots.size === 0) return credentials;
+  const rank = (c: OverviewCredential) => slots.get(c.fileName)?.rank ?? Number.MAX_SAFE_INTEGER;
+  return [...credentials].sort((a, b) => rank(a) - rank(b));
 };
 
 const describeDuration = (seconds: number): string => {

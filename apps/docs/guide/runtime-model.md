@@ -43,7 +43,7 @@ CPAMP 完整模式
 
 - 客户端请求失败时，先检查 CPA、Provider、账号和客户端配置。
 - CPAMP 页面没有数据时，先确认请求经过 CPA，再检查请求监控采集。
-- CPAMP 不会独立转发模型请求。
+- 普通模型请求直接发送到 CPA。Full Mode 可通过可选的 [`/share/v1` 端点](../gateway/shared-access.md) 转发受限的共享密钥请求。
 
 :::
 

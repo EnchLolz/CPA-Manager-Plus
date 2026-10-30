@@ -43,7 +43,7 @@ This means:
 
 - For a failed client request, check CPA, the provider, the account, and client configuration first.
 - When CPAMP has no data, confirm that requests pass through CPA, then inspect monitoring collection.
-- CPAMP does not forward model requests by itself.
+- Ordinary model traffic goes directly to CPA. Full Mode can forward restricted shared-key traffic through the optional [`/share/v1` endpoint](../gateway/shared-access.md).
 
 :::
 

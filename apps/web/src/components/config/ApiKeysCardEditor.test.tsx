@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { sha256Hex } from '@/utils/apiKeyHash';
 import { ApiKeysCardEditor, type ApiKeyMutation } from './ApiKeysCardEditor';
 
+vi.mock('./SharedKeysCard', () => ({ SharedKeysCard: () => null }));
+
 const mocks = vi.hoisted(() => ({
   getApiKeyAliases: vi.fn(),
   saveApiKeyAliases: vi.fn(),

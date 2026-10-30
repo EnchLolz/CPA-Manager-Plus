@@ -30,6 +30,7 @@ const (
 )
 
 type Config struct {
+	SharedGatewayPublicURL       string
 	HTTPAddr                     string
 	DataDir                      string
 	DBPath                       string
@@ -155,6 +156,7 @@ func LoadWithOptions(options LoadOptions) (Config, error) {
 	}
 
 	return Config{
+		SharedGatewayPublicURL:       strings.TrimRight(strings.TrimSpace(env("SHARED_GATEWAY_PUBLIC_URL", "")), "/"),
 		HTTPAddr:                     env("HTTP_ADDR", stringFallback(cfgFile.HTTPAddr, "0.0.0.0:18317")),
 		DataDir:                      dataDir,
 		DBPath:                       dbPath,

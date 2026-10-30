@@ -4,10 +4,12 @@ import type { AccountQuotaWindowDefinition } from '@/features/accounts/model/acc
 import {
   buildOverviewCredential,
   buildOverviewProviders,
+  buildRoutingSlots,
   formatPlanType,
   formatResetParts,
   labelForSnapshotWindowId,
   maskCredentialName,
+  orderByRoutingRank,
   resolveHeadlineLabel,
   selectDisplayWindows,
   sortCredentials,
@@ -274,5 +276,37 @@ describe('formatting helpers', () => {
   it('labels known snapshot windows and humanizes unknown ids', () => {
     expect(labelForSnapshotWindowId('seven-day-opus')).toBe('7-day Opus');
     expect(labelForSnapshotWindowId('primary_window')).toBe('Primary window');
+  });
+});
+
+describe('buildRoutingSlots / orderByRoutingRank', () => {
+  const account = (name: string, priority: number, pinned = false) => ({ name: `${name}.json`, auth_index: name, priority, pinned });
+  const status = { strategy: 'earliest weekly reset first', last_poll_at_ms: NOW, last_applied_at_ms: NOW };
+  const credential = (key: string, disabled = false) =>
+    buildOverviewCredential(row({ selectionKey: key, disabled }), [definition({ providerWindowId: 'seven-day', usedPercent: 0 })], NOW);
+
+  it('ranks only providers whose priority worker is on and carries the pin end', () => {
+    const slots = buildRoutingSlots({
+      claude: {
+        ...status,
+        enabled: true,
+        order: [account('nine-hour', 20, true), account('seven-hour', 10)],
+        pin: { auth_index: 'nine-hour', name: 'nine-hour.json', pinned_at_ms: NOW, until_ms: NOW + 9 * HOUR },
+      },
+      codex: { ...status, enabled: false, order: [account('plus', 10)] },
+    });
+    expect(slots.has('codex')).toBe(false);
+    expect(slots.get('claude')?.get('nine-hour.json')).toMatchObject({ rank: 1, pinUntilMs: NOW + 9 * HOUR, account: { pinned: true } });
+    expect(slots.get('claude')?.get('seven-hour.json')?.rank).toBe(2);
+  });
+
+  it('lists credentials in routing order so a pinned account moves to the top', () => {
+    const slots = buildRoutingSlots({
+      claude: { ...status, enabled: true, order: [account('nine-hour', 20, true), account('seven-hour', 10)] },
+    }).get('claude');
+    const ordered = orderByRoutingRank([credential('seven-hour'), credential('off', true), credential('nine-hour')], slots);
+    expect(ordered.map((c) => c.key)).toEqual(['nine-hour', 'seven-hour', 'off']);
+    const unrouted = [credential('b'), credential('a')];
+    expect(orderByRoutingRank(unrouted, undefined)).toBe(unrouted);
   });
 });

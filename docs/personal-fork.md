@@ -31,6 +31,14 @@ rebased onto each upstream release rather than merged.
   The tier comes from the credential's `plan_type` or the file name suffix.
 - Both workers report to `GET /v0/management/routing-priority`, which the
   Overview shows as a collapsed line under each provider heading.
+- **Manual pin** (`routing_pin.go`): "Use first" on an Overview row puts that
+  credential at #1 while the worker keeps ordering the rest. It applies at once
+  through `PUT /v0/management/routing-priority/pin` (`DELETE ?provider=` to unpin)
+  and is stored in `$USAGE_DATA_DIR/<provider>-routing-pin.json`. A Claude pin ends
+  at that account's weekly reset and is skipped while its weekly limit is used up;
+  a Codex pin lasts until unpinned. Pins on disabled or removed credentials are
+  dropped. CPA session affinity keeps running sessions on their current account,
+  so a pin moves new sessions first.
 - **Account value comparison** in Credential Management.
 
 Upstream files touched, each by a line or two: `MainRoutes.tsx`, `MainLayout.tsx`,

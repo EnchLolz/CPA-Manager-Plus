@@ -9,7 +9,7 @@ import { IconEye, IconEyeOff, IconRefreshCw, IconSidebarAuthFiles } from '@/comp
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { getProviderLabel } from '@/features/accounts/model/accountsPagePresentation';
 import { canRefreshProvider, useOverviewData } from './hooks/useOverviewData';
-import { buildOverviewProviders } from './model/overviewModel';
+import { buildOverviewProviders, buildRoutingSlots, orderByRoutingRank } from './model/overviewModel';
 import { ProviderSummaryCard } from './components/ProviderSummaryCard';
 import { CredentialRow } from './components/CredentialRow';
 import { RoutingDisclosure } from './components/RoutingDisclosure';
@@ -73,14 +73,7 @@ export function OverviewPage() {
   );
   const visibleProviders = filter === 'all' ? providers : providers.filter((p) => p.provider === filter);
   const withData = credentials.filter((c) => c.windows.length > 0).length;
-  const routingRank = useMemo(() => {
-    const byProvider = new Map<string, Map<string, number>>();
-    for (const [provider, status] of Object.entries(data.routing)) {
-      if (!status.enabled) continue;
-      byProvider.set(provider, new Map(status.order.map((account, index) => [account.name, index + 1])));
-    }
-    return byProvider;
-  }, [data.routing]);
+  const routingSlots = useMemo(() => buildRoutingSlots(data.routing), [data.routing]);
 
   return (
     <div className={styles.page}>
@@ -169,7 +162,7 @@ export function OverviewPage() {
             )}
           </div>
           <div className={styles.rows}>
-            {provider.credentials.map((credential) => (
+            {orderByRoutingRank(provider.credentials, routingSlots.get(provider.provider)).map((credential) => (
               <CredentialRow
                 key={credential.key}
                 credential={credential}
@@ -178,8 +171,10 @@ export function OverviewPage() {
                 showEmails={showEmails}
                 refreshing={data.refreshing.has(credential.key)}
                 canRefresh={!credential.disabled && canRefreshProvider(credential.provider)}
-                routingRank={routingRank.get(provider.provider)?.get(credential.fileName) ?? null}
+                routing={routingSlots.get(provider.provider)?.get(credential.fileName) ?? null}
+                pinBusy={data.pinningProvider === provider.provider}
                 onRefresh={() => void data.refreshCredential(credential)}
+                onPin={(authIndex) => void data.pinRouting(provider.provider, authIndex)}
               />
             ))}
           </div>

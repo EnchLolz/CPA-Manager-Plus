@@ -1,6 +1,6 @@
 # 客户端接入
 
-客户端只需要知道 CPA 的地址和普通 API 密钥。不要把 Codex、Claude Code、OpenCode 或 OpenAI SDK 指向 CPAMP；CPAMP 负责观测和管理，不承接普通模型请求。
+普通客户端使用 CPA 地址和普通 API 密钥，CPAMP 不承接普通 `/v1` 模型请求。需要临时访问和独立限额时，可以使用 Full Mode 的[共享访问端点](./shared-access.md) `/share/v1`。
 
 ## 通用规则
 

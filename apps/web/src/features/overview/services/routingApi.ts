@@ -8,6 +8,15 @@ export interface RoutingAccount {
   tier?: string;
   cycle_end_ms?: number;
   used_percent?: number;
+  pinned?: boolean;
+}
+
+/** A manual "use this credential first" override; until_ms ends it automatically. */
+export interface RoutingPin {
+  auth_index: string;
+  name: string;
+  pinned_at_ms: number;
+  until_ms?: number;
 }
 
 export interface RoutingStatus {
@@ -17,13 +26,44 @@ export interface RoutingStatus {
   last_applied_at_ms: number;
   last_error?: string;
   order: RoutingAccount[];
+  pin?: RoutingPin | null;
 }
 
 export type RoutingStatusByProvider = Record<string, RoutingStatus>;
 
+// Go encodes a nil slice as null, including before a worker has an order.
+type RoutingResponse = {
+  providers?: Record<string, Omit<RoutingStatus, 'order'> & { order?: RoutingAccount[] | null }> | null;
+};
+
+const normalizeRouting = (data: RoutingResponse): RoutingStatusByProvider =>
+  Object.fromEntries(
+    Object.entries(data.providers ?? {}).map(([provider, status]) => [
+      provider,
+      { ...status, order: status.order ?? [] },
+    ])
+  );
+
+const demoPins: Record<string, string> = {};
+
+const applyDemoPin = (status: RoutingStatus, pinned: string | undefined): RoutingStatus => {
+  const target = status.order.find((account) => account.auth_index === pinned);
+  if (!target) return status;
+  const order = [target, ...status.order.filter((account) => account !== target)].map((account, index, all) => ({
+    ...account,
+    priority: (all.length - index) * 10,
+    pinned: account === target,
+  }));
+  return {
+    ...status,
+    order,
+    pin: { auth_index: target.auth_index, name: target.name, pinned_at_ms: Date.now(), until_ms: target.cycle_end_ms },
+  };
+};
+
 const buildDemoRouting = (): RoutingStatusByProvider => {
   const now = Date.now();
-  return {
+  const routing: RoutingStatusByProvider = {
     claude: {
       enabled: true,
       strategy: 'earliest weekly reset first',
@@ -47,7 +87,13 @@ const buildDemoRouting = (): RoutingStatusByProvider => {
       ],
     },
   };
+  return Object.fromEntries(
+    Object.entries(routing).map(([provider, status]) => [provider, applyDemoPin(status, demoPins[provider])])
+  );
 };
+
+const authHeaders = (managementKey: string | null | undefined) =>
+  managementKey ? { Authorization: `Bearer ${managementKey}` } : undefined;
 
 /** Reads per-provider routing status from the personal manager-server endpoint. */
 export const fetchRoutingStatus = async (
@@ -57,13 +103,36 @@ export const fetchRoutingStatus = async (
 ): Promise<RoutingStatusByProvider> => {
   if (__DEMO_SITE__ && isDemoMode()) return buildDemoRouting();
   const base = managerServiceBase.replace(/\/+$/, '');
-  const response = await axios.get<{ providers: RoutingStatusByProvider }>(
+  const response = await axios.get<RoutingResponse>(
     `${base}/v0/management/routing-priority`,
     {
       timeout: 10_000,
-      headers: managementKey ? { Authorization: `Bearer ${managementKey}` } : undefined,
+      headers: authHeaders(managementKey),
       signal,
     }
   );
-  return response.data.providers ?? {};
+  return normalizeRouting(response.data);
+};
+
+/**
+ * Pins one credential first for a provider, or clears the pin when authIndex
+ * is null. Resolves with the routing status after the worker applied it.
+ */
+export const setRoutingPin = async (
+  managerServiceBase: string,
+  managementKey: string | null | undefined,
+  provider: string,
+  authIndex: string | null
+): Promise<RoutingStatusByProvider> => {
+  if (__DEMO_SITE__ && isDemoMode()) {
+    if (authIndex) demoPins[provider] = authIndex;
+    else delete demoPins[provider];
+    return buildDemoRouting();
+  }
+  const url = `${managerServiceBase.replace(/\/+$/, '')}/v0/management/routing-priority/pin`;
+  const config = { timeout: 60_000, headers: authHeaders(managementKey) };
+  const response = authIndex
+    ? await axios.put<RoutingResponse>(url, { provider, auth_index: authIndex }, config)
+    : await axios.delete<RoutingResponse>(url, { ...config, params: { provider } });
+  return normalizeRouting(response.data);
 };

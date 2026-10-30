@@ -34,7 +34,7 @@ Muse / Meta 是一个需要特别区分凭证类型的场景：OAuth Device Flow
 - `/backend-api/codex/...`：Codex CLI。
 - Provider 回调路径：OAuth 登录。
 
-模型请求应转发到 CPA，不应转发到 CPAMP。需要同域名分流时查看[反向代理](../deployment/reverse-proxy.md)。
+普通模型请求应转发到 CPA。共享密钥请求则使用 CPAMP 的 [`/share/v1` 端点](./shared-access.md)。需要同域名分流时查看[反向代理](../deployment/reverse-proxy.md)。
 
 模型价格只影响 CPAMP 的本地成本估算，不会改变 CPA 路由或 Provider 账单。
 

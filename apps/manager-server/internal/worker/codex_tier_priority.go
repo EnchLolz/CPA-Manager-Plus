@@ -33,14 +33,20 @@ type CodexTierPriorityWorker struct {
 	client  *http.Client
 	enabled bool
 	order   []string
+	pin     *RoutingPin
+	pinPath string
+	pins    chan routingPinRequest
 }
 
 func NewCodexTierPriorityWorker(config codexTierConfig) *CodexTierPriorityWorker {
+	pinPath := routingPinPath(os.Getenv("USAGE_DATA_DIR"), "codex")
 	return &CodexTierPriorityWorker{
 		config:  config,
 		client:  &http.Client{Timeout: 30 * time.Second},
 		enabled: os.Getenv("CODEX_TIER_PRIORITY") == "true",
 		order:   parseCodexTierOrder(os.Getenv("CODEX_TIER_ORDER")),
+		pin:     loadRoutingPin(pinPath),
+		pinPath: pinPath,
 	}
 }
 
@@ -58,6 +64,9 @@ func parseCodexTierOrder(raw string) []string {
 }
 
 func (w *CodexTierPriorityWorker) Start(ctx context.Context) {
+	if w.enabled {
+		w.pins = registerRoutingPinner("codex")
+	}
 	go func() {
 		timer := time.NewTicker(5 * time.Minute)
 		defer timer.Stop()
@@ -65,10 +74,8 @@ func (w *CodexTierPriorityWorker) Start(ctx context.Context) {
 			if err := w.poll(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("[codex-tier-priority] %v", err)
 			}
-			select {
-			case <-ctx.Done():
+			if !serveRoutingPins(ctx, timer.C, w.pins, w.setPin) {
 				return
-			case <-timer.C:
 			}
 		}
 	}()
@@ -83,10 +90,52 @@ func (w *CodexTierPriorityWorker) poll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("account inventory unavailable")
 	}
-	plan := planCodexTierPriorities(files, w.order)
+	return w.apply(ctx, setup, files)
+}
+
+// setPin puts one enabled Codex credential ahead of the tier order until it is
+// cleared. Tier order is static, so unlike Claude there is no natural end.
+func (w *CodexTierPriorityWorker) setPin(ctx context.Context, authIndex string) error {
+	setup, ok, err := w.config.ResolveSetup(ctx)
+	if err != nil || !ok {
+		return fmt.Errorf("CPA connection unavailable")
+	}
+	files, err := cpaauthfiles.New(w.client).Fetch(ctx, setup.CPAUpstreamURL, setup.ManagementKey)
+	if err != nil {
+		return fmt.Errorf("account inventory unavailable")
+	}
+	if authIndex == "" {
+		if w.pin != nil {
+			log.Printf("[codex-tier-priority] pin on %s cleared", w.pin.Name)
+		}
+		w.pin = nil
+	} else {
+		file, ok := enabledCredential(files, "codex", authIndex)
+		if !ok {
+			return ErrRoutingPinTarget
+		}
+		w.pin = &RoutingPin{AuthIndex: file.AuthIndex, Name: file.Name, PinnedAtMS: time.Now().UnixMilli()}
+		log.Printf("[codex-tier-priority] pinned %s first", file.Name)
+	}
+	saveRoutingPin(w.pinPath, w.pin)
+	// Ordering problems are reported in the routing status like a regular poll.
+	_ = w.apply(ctx, setup, files)
+	return nil
+}
+
+func (w *CodexTierPriorityWorker) apply(ctx context.Context, setup store.Setup, files []cpaauthfiles.File) error {
+	if w.pin != nil {
+		if _, ok := enabledCredential(files, "codex", w.pin.AuthIndex); !ok {
+			log.Printf("[codex-tier-priority] pin on %s cleared: credential is no longer enabled", w.pin.Name)
+			w.pin = nil
+			saveRoutingPin(w.pinPath, nil)
+		}
+	}
+	pinned := pinnedAuthIndex(w.pin)
+	plan := planCodexTierPriorities(files, w.order, pinned)
 	order := make([]RoutingAccount, 0, len(plan))
 	for _, item := range plan {
-		order = append(order, RoutingAccount{Name: item.file.Name, AuthIndex: item.file.AuthIndex, Priority: item.priority, Tier: item.tier})
+		order = append(order, RoutingAccount{Name: item.file.Name, AuthIndex: item.file.AuthIndex, Priority: item.priority, Tier: item.tier, Pinned: item.file.AuthIndex == pinned && pinned != ""})
 	}
 	now := time.Now().UnixMilli()
 	updateRoutingStatus("codex", func(status *RoutingStatus) {
@@ -95,6 +144,7 @@ func (w *CodexTierPriorityWorker) poll(ctx context.Context) error {
 		status.LastPollAtMS = now
 		status.Order = order
 		status.LastError = ""
+		status.Pin = copyRoutingPin(w.pin)
 	})
 	if !w.enabled {
 		return nil
@@ -133,8 +183,8 @@ func codexTier(file cpaauthfiles.File) string {
 
 // planCodexTierPriorities ranks enabled Codex credentials by tier order; tiers
 // not in the order sort last, and ties keep a stable name order so repeated
-// polls do not flip priorities.
-func planCodexTierPriorities(files []cpaauthfiles.File, order []string) []codexTierPriority {
+// polls do not flip priorities. A pinned credential goes first.
+func planCodexTierPriorities(files []cpaauthfiles.File, order []string, pinned string) []codexTierPriority {
 	rank := func(tier string) int {
 		for i, t := range order {
 			if t == tier {
@@ -157,6 +207,7 @@ func planCodexTierPriorities(files []cpaauthfiles.File, order []string) []codexT
 		}
 		return plan[i].file.Name < plan[j].file.Name
 	})
+	plan = pinFirst(plan, func(item codexTierPriority) bool { return pinned != "" && item.file.AuthIndex == pinned })
 	for i := range plan {
 		plan[i].priority = (len(plan) - i) * 10
 	}

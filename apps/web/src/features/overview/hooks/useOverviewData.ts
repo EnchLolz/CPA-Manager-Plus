@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useShallow } from 'zustand/react/shallow';
+import axios from 'axios';
 import { authFilesApi } from '@/services/api';
 import {
   accountQuotaSnapshotApi,
@@ -54,13 +55,16 @@ import {
   type OverviewCredential,
   type OverviewProvider,
 } from '../model/overviewModel';
-import { fetchRoutingStatus, type RoutingStatusByProvider } from '../services/routingApi';
+import { fetchRoutingStatus, setRoutingPin, type RoutingStatusByProvider } from '../services/routingApi';
 
 type QuotaStoreState = ReturnType<typeof useQuotaStore.getState>;
 type Refresher = (file: AuthFileItem, t: TFunction) => Promise<void>;
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const errorMessage = (error: unknown): string => {
+  const serverMessage = axios.isAxiosError(error) ? (error.response?.data as { error?: unknown } | undefined)?.error : null;
+  if (typeof serverMessage === 'string' && serverMessage) return serverMessage;
+  return error instanceof Error ? error.message : String(error);
+};
 const makeRefresher = <TState extends CredentialScopedQuotaState, TData>(
   config: QuotaConfig<TState, TData>,
   select: (state: QuotaStoreState) => { states: Record<string, TState>; setQuota: QuotaSetter<TState> }
@@ -101,7 +105,11 @@ export interface OverviewData {
   refreshingAll: boolean;
   lastLoadedAtMs: number | null;
   routing: RoutingStatusByProvider;
+  /** Provider whose routing pin is being changed, if any. */
+  pinningProvider: string | null;
   reload: () => Promise<void>;
+  /** Pins a credential first for its provider, or clears the pin with null. */
+  pinRouting: (provider: string, authIndex: string | null) => Promise<void>;
   refreshCredential: (credential: OverviewCredential) => Promise<void>;
   refreshAll: () => Promise<void>;
 }
@@ -130,6 +138,7 @@ export function useOverviewData(): OverviewData {
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [lastLoadedAtMs, setLastLoadedAtMs] = useState<number | null>(null);
   const [routing, setRouting] = useState<RoutingStatusByProvider>({});
+  const [pinningProvider, setPinningProvider] = useState<string | null>(null);
   const requestSeq = useRef(0);
   const refreshingKeys = useRef(new Set<string>());
   // One clock for the whole page so relative times stay consistent and pure.
@@ -164,6 +173,22 @@ export function useOverviewData(): OverviewData {
       setRouting({});
     }
   }, [managerBase, managementKey]);
+
+  const pinRouting = useCallback(
+    async (provider: string, authIndex: string | null) => {
+      if (!managerBase && !(__DEMO_SITE__ && isDemoMode())) return;
+      setPinningProvider(provider);
+      try {
+        setRouting(await setRoutingPin(managerBase, managementKey, provider, authIndex));
+        setError(null);
+      } catch (pinError) {
+        setError(`Routing unchanged: ${errorMessage(pinError)}`);
+      } finally {
+        setPinningProvider(null);
+      }
+    },
+    [managerBase, managementKey]
+  );
 
   const reload = useCallback(async () => {
     const seq = ++requestSeq.current;
@@ -276,7 +301,9 @@ export function useOverviewData(): OverviewData {
     refreshingAll,
     lastLoadedAtMs,
     routing,
+    pinningProvider,
     reload,
+    pinRouting,
     refreshCredential,
     refreshAll,
   };

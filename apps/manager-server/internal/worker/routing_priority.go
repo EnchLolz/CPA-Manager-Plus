@@ -24,6 +24,7 @@ type RoutingAccount struct {
 	Tier        string   `json:"tier,omitempty"`
 	CycleEndMS  *int64   `json:"cycle_end_ms,omitempty"`
 	UsedPercent *float64 `json:"used_percent,omitempty"`
+	Pinned      bool     `json:"pinned,omitempty"`
 }
 
 // RoutingStatus is the last observed state of one provider's priority worker,
@@ -35,6 +36,7 @@ type RoutingStatus struct {
 	LastAppliedAtMS int64            `json:"last_applied_at_ms"`
 	LastError       string           `json:"last_error,omitempty"`
 	Order           []RoutingAccount `json:"order"`
+	Pin             *RoutingPin      `json:"pin,omitempty"`
 }
 
 var routingState struct {
@@ -49,6 +51,7 @@ func CurrentRoutingStatus() map[string]RoutingStatus {
 	out := make(map[string]RoutingStatus, len(routingState.status))
 	for provider, status := range routingState.status {
 		status.Order = append([]RoutingAccount(nil), status.Order...)
+		status.Pin = copyRoutingPin(status.Pin)
 		out[provider] = status
 	}
 	return out
@@ -66,8 +69,13 @@ func updateRoutingStatus(provider string, mutate func(*RoutingStatus)) {
 }
 
 // currentPriority reads the priority CLIProxyAPI currently holds for a file.
+// The auth-file client decodes with UseNumber, so numbers arrive as json.Number.
 func currentPriority(file cpaauthfiles.File) (int, bool) {
 	switch v := file.Raw["priority"].(type) {
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return int(n), true
+		}
 	case float64:
 		return int(v), true
 	case string:

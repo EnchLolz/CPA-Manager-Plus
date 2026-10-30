@@ -20,11 +20,13 @@ import (
 	quotasnapshotcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/quotasnapshot"
 	routingprioritycontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/routingpriority"
 	setupcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/setup"
+	sharedkeycontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/sharedkey"
 	systemcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/system"
 	updatecheckcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/updatecheck"
 	usagecontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/usage"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/middleware"
 	proxysvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/proxy"
+	sharedkeyservice "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/sharedkey"
 )
 
 func New(appCtx *app.Context) http.Handler {
@@ -47,6 +49,11 @@ func New(appCtx *app.Context) http.Handler {
 	panelHandler := &panelcontroller.Handler{App: appCtx}
 
 	mux := http.NewServeMux()
+	sharingService := sharedkeyservice.New(appCtx.Store, appCtx.ManagerConfigService)
+	sharingHandler := &sharedkeycontroller.Handler{App: appCtx, Service: sharingService}
+	mux.HandleFunc(sharedkeycontroller.Path, middleware.WithCORS(appCtx.Config, sharingHandler.Handle))
+	mux.HandleFunc(sharedkeycontroller.Path+"/", middleware.WithCORS(appCtx.Config, sharingHandler.Handle))
+	mux.HandleFunc(sharedkeyservice.Prefix+"/", sharingHandler.Gateway)
 	updates := &updatecheckcontroller.Handler{App: appCtx}
 	mux.HandleFunc("/usage-service/updates", middleware.WithCORS(appCtx.Config, updates.Handle))
 	mux.HandleFunc("/usage-service/updates/", middleware.WithCORS(appCtx.Config, updates.Handle))
@@ -59,6 +66,7 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/setup", middleware.WithCORS(appCtx.Config, setupHandler.Setup))
 	mux.HandleFunc("/management.html", panelHandler.ManagementHTML)
 	mux.HandleFunc(routingprioritycontroller.Path, middleware.WithCORS(appCtx.Config, routingPriorityHandler.Handle))
+	mux.HandleFunc(routingprioritycontroller.PinPath, middleware.WithCORS(appCtx.Config, routingPriorityHandler.HandlePin))
 	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, dashboardHandler, monitoringHandler, quotaSnapshotHandler, managerConfigHandler, proxyHandler))
 
 	return middleware.Recovery(middleware.RequestLogger(mux))
