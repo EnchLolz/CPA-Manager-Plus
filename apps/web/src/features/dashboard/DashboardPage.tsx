@@ -391,7 +391,7 @@ function DashboardPageContent({ useApiBaseAsCpaBase }: { useApiBaseAsCpaBase: bo
           ? aliasesResult.value.items
           : current.apiKeyAliases,
     }));
-  }, [apiBase, config, managementKey, t, usageEnabled, usageServiceBase]);
+  }, [config, managementKey, t, usageEnabled, usageServiceBase]);
 
   const refreshDashboard = useCallback(async () => {
     setCurrentTime(new Date());

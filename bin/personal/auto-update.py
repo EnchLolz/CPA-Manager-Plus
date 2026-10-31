@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Kiwi's unattended stable-release updater. Run from a dedicated checkout."""
 import fcntl
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -112,7 +113,7 @@ def deploy(image, sha):
     docker('volume', 'create', '--label', 'cpamp.auto-update=true', volume)
     save('deployment.json', {'old': backup, 'volume': volume, 'sha': sha, 'committed': False})
     try:
-        docker('stop', '--time', '60', NAME)
+        docker('stop', '--timeout', '60', NAME)
         # Copy only after a clean shutdown, including SQLite WAL and archive files.
         docker('run', '--rm', '-v', source + ':/source:ro', '-v', volume + ':/target',
                'alpine:3.21', 'sh', '-ec', 'cp -a /source/. /target/')
@@ -148,12 +149,27 @@ def verify():
     test_image = 'cpa-manager-plus:verify-node'
     docker('build', '-f', 'bin/personal/Dockerfile.verify', '--build-arg',
            'NODE_IMAGE=' + node, '-t', test_image, '.')
-    docker('run', '--rm', '--user', uid, '-e', 'HOME=/tmp', '-v', str(ROOT) + ':/src',
-           '-w', '/src', test_image, 'sh', '-ec',
-           'npm ci && npm run lint && npm run type-check && npm run test:web && npm run test:repo')
-    docker('run', '--rm', '--user', uid, '-e', 'HOME=/tmp', '-e', 'GOCACHE=/tmp/go-cache',
-           '-v', str(ROOT) + ':/src', '-w', '/src/apps/manager-server', go,
-           'sh', '-ec', 'go test ./...')
+    # Frontend and Go checks use separate source trees and can run together.
+    # Bound test concurrency so scheduled checks leave headroom for live traffic.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        checks = [
+            pool.submit(docker, 'run', '--rm', '--user', uid, '-e', 'HOME=/tmp',
+                        '-v', str(ROOT) + ':/src', '-w', '/src', test_image, 'sh', '-ec',
+                        'npm ci && npm run lint && npm run type-check && '
+                        'npm run test:web -- --maxWorkers=4 && npm run test:repo -- --maxWorkers=4'),
+            pool.submit(docker, 'run', '--rm', '--user', uid, '-e', 'HOME=/tmp',
+                        '-e', 'GOCACHE=/tmp/go-cache', '-e', 'GOMAXPROCS=4',
+                        '-v', str(ROOT) + ':/src', '-w', '/src/apps/manager-server', go,
+                        'sh', '-ec', 'go test -p 4 ./...'),
+        ]
+        failures = []
+        for check in checks:
+            try:
+                check.result()
+            except Exception as exc:
+                failures.append(exc)
+        if failures:
+            raise failures[0]
     run(sys.executable, '-m', 'unittest', 'discover', '-s', 'bin/personal/tests', '-v')
 
 
@@ -215,6 +231,9 @@ def main():
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
+            return
+        if sys.argv[1:] == ['--recover-only']:
+            recover()
             return
         try:
             result = update()

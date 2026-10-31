@@ -20,6 +20,14 @@ def old_container():
 
 
 class UpdateTests(unittest.TestCase):
+    def test_service_stop_recovers_without_checking_for_an_update(self):
+        with tempfile.TemporaryDirectory() as state, patch.object(updater, 'STATE', Path(state)), \
+                patch.object(updater.sys, 'argv', ['auto-update.py', '--recover-only']), \
+                patch.object(updater, 'recover') as recover, patch.object(updater, 'update') as update:
+            updater.main()
+            recover.assert_called_once_with()
+            update.assert_not_called()
+
     def test_preserves_environment_binding_and_changes_only_data_volume(self):
         args = updater.create_args(old_container(), 'new-image', 'new-volume')
         self.assertIn('CUSTOM=keep-me', args)
