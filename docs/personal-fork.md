@@ -1,16 +1,16 @@
 # Personal fork
 
 This repository is EnchLolz's fork of [seakee/CPA-Manager-Plus](https://github.com/seakee/CPA-Manager-Plus).
-Upstream moves fast, so the fork is kept as a short, additive patch stack that is
-rebased onto each upstream release rather than merged.
+Stable upstream releases are merged into the personal branch, preserving the
+custom features below. Kiwi tests and deploys the result automatically.
 
 ## Branches and tags
 
 | Ref | Meaning |
 |---|---|
-| `main` | Mirror of upstream `main`. Never commit here. |
-| `personal` | Upstream release tag plus the personal patches, as a linear stack. |
-| `sync/vX.Y.Z` | Automated rebase of `personal` onto upstream `vX.Y.Z`, opened as a PR. |
+| `main` | Legacy upstream mirror, no longer used by the updater. |
+| `personal` | Stable upstream release plus the personal modifications. |
+| `auto-update-candidate` | Dedicated local branch on Kiwi for integration and validation. |
 | `ench-vX.Y.Z-N` | Deployable build N on top of upstream `vX.Y.Z`. Triggers the image workflow. |
 
 ## What the patches add
@@ -41,9 +41,6 @@ rebased onto each upstream release rather than merged.
   so a pin moves new sessions first.
 - **Account value comparison** in Credential Management.
 
-Upstream files touched, each by a line or two: `MainRoutes.tsx`, `MainLayout.tsx`,
-`router.go`, `main.go`. Everything else lives in new files.
-
 ## Automatic updates on Kiwi
 
 A persistent user timer, `cpamp-auto-update.timer`, checks the latest stable
@@ -66,11 +63,34 @@ Two prior deployments are retained. The updater has a lock and a persistent
 recovery journal for interrupted deployments. There is a brief interruption
 while data is copied and the replacement starts.
 
-Conflicting merges, failed tests, network failures and unsupported deployment
-layouts stop the update and keep the existing deployment. The timer retries;
-it never discards custom changes to force an update. Arbitrary upstream
-conflicts can still require a code fix. Stable releases are tracked, not
-unreleased commits on upstream main.
+Merge conflicts and failed validation invoke an isolated Codex repair agent.
+It reads the three Git versions and preserves the custom behavior described in
+`bin/personal/agent-instructions.md`. The updater independently checks, commits,
+tests and builds each repair. A fresh, read-only agent reviews repaired changes
+before publication. Rejected reviews feed another repair attempt.
+
+There are at most three repairs in one run, each limited to 15 minutes. Exhausted
+or unsuccessful repairs leave the current deployment running and retry after
+six hours, or immediately when the personal/upstream revision changes. This
+automates attempts, not a guarantee that every possible conflict is solvable.
+
+The agent has a disposable tracked-file copy and read-only Git metadata. It has
+no SSH keys, Docker socket, production data, or model gateway credential. Its
+internal Docker network reaches a host-side broker that allows only model
+inference endpoints. The broker uses an existing CLIProxyAPI key; the agent sees
+only a short-lived broker token. The configured model and reasoning level come
+from Kiwi's existing Codex configuration when installed. Credentials live in
+`~/.local/state/cpamp-auto-update/agent-config.json`, mode 600, outside Git.
+
+Agent edits to updater/CI controls, generated dependency locks, changelogs and
+test deletions are rejected. Normal checks run outside the agent's environment.
+Repair transcripts and review decisions are kept under `agent-runs/` in the
+state directory. Validation and build output are in `validation.log` and
+`build.log`. Interrupted agent containers/networks are cleaned up automatically.
+
+Stable releases are tracked, not unreleased commits on upstream main. Changes
+only to updater controls/documentation run the updater tests and install the
+new control files without restarting an otherwise current manager.
 
 Inspect the service and its machine-readable result:
 
@@ -81,8 +101,10 @@ cat ~/.local/state/cpamp-auto-update/status.json
 ```
 
 The service uses an installed copy of `bin/personal/auto-update.py`, updated
-atomically after a successful deployment. Its `CPAMP_REPO` points at the
-separate checkout. Both units are in `bin/personal/`.
+atomically together with the resolver files after successful validation. Its
+`CPAMP_REPO` points at the separate checkout. Both units are in `bin/personal/`.
+To install or refresh the agent configuration on Kiwi, run
+`bash bin/personal/install-agent.sh` from that checkout while the updater is idle.
 
 To trigger a check or disable automatic updates:
 

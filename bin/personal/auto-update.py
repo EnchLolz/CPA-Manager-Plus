@@ -11,14 +11,18 @@ import sys
 import time
 import urllib.request
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from agent_resolver import Resolver, cleanup as cleanup_agents
+
 ROOT = Path(os.environ.get('CPAMP_REPO', str(Path(__file__).resolve().parents[2])))
 STATE = Path(os.environ.get('CPAMP_UPDATE_STATE', str(Path.home() / '.local/state/cpamp-auto-update')))
 NAME = os.environ.get('CPAMP_CONTAINER', 'cpa-manager-plus')
 
 
-def run(*args, capture=False, cwd=ROOT, check=True):
+def run(*args, capture=False, cwd=ROOT, check=True, log=None):
     result = subprocess.run(args, cwd=cwd, text=True, check=check,
-                            stdout=subprocess.PIPE if capture else None)
+                            stdout=subprocess.PIPE if capture else log,
+                            stderr=subprocess.STDOUT if log else None)
     return result.stdout.strip() if capture else result.returncode
 
 
@@ -142,13 +146,18 @@ def deploy(image, sha):
 
 
 def verify():
+    with (STATE / 'validation.log').open('w') as log:
+        _verify(log)
+
+
+def _verify(log):
     dockerfile = (ROOT / 'Dockerfile.manager-server').read_text()
     node = re.search(r'FROM\s+--platform=\$BUILDPLATFORM\s+(\S+)\s+AS web-build', dockerfile)[1]
     go = re.search(r'FROM\s+--platform=\$BUILDPLATFORM\s+(\S+)\s+AS service-build', dockerfile)[1]
     uid = f'{os.getuid()}:{os.getgid()}'
     test_image = 'cpa-manager-plus:verify-node'
     docker('build', '-f', 'bin/personal/Dockerfile.verify', '--build-arg',
-           'NODE_IMAGE=' + node, '-t', test_image, '.')
+           'NODE_IMAGE=' + node, '-t', test_image, '.', log=log)
     # Frontend and Go checks use separate source trees and can run together.
     # Bound test concurrency so scheduled checks leave headroom for live traffic.
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -159,12 +168,12 @@ def verify():
                         '-e', 'GIT_CONFIG_VALUE_0=/src',
                         '-v', str(ROOT) + ':/src', '-w', '/src', test_image, 'sh', '-ec',
                         'npm ci && npm run lint && npm run type-check && '
-                        'npm run test:web -- --maxWorkers=4 && npm run test:repo -- --maxWorkers=4'),
+                        'npm run test:web -- --maxWorkers=4 && npm run test:repo -- --maxWorkers=4', log=log),
             pool.submit(docker, 'run', '--rm', '--cpus', '2', '--cpu-shares', '128',
                         '--memory', '3g', '--memory-swap', '3g', '--user', uid, '-e', 'HOME=/tmp',
                         '-e', 'GOCACHE=/tmp/go-cache', '-e', 'GOMAXPROCS=4',
                         '-v', str(ROOT) + ':/src', '-w', '/src/apps/manager-server', go,
-                        'sh', '-ec', 'go test -p 4 ./...'),
+                        'sh', '-ec', 'go test -p 4 ./...', log=log),
         ]
         failures = []
         for check in checks:
@@ -174,7 +183,145 @@ def verify():
                 failures.append(exc)
         if failures:
             raise failures[0]
-    run(sys.executable, '-m', 'unittest', 'discover', '-s', 'bin/personal/tests', '-v')
+    run(sys.executable, '-m', 'unittest', 'discover', '-s', 'bin/personal/tests', '-v', log=log)
+
+
+class RepairSession:
+    """Bound model work; the updater alone commits, tests, publishes and deploys."""
+    def __init__(self, tag):
+        self.tag = tag
+        self.original = run('git', 'rev-parse', 'HEAD', capture=True)
+        self.target = run('git', 'rev-parse', tag, capture=True)
+        self.key = self.original + ':' + self.target
+        self.attempts = 0
+        self.resolver = None
+        self.changed_files = set()
+        self.conflict_files = set()
+
+    def task(self, reason):
+        return (f'Personal baseline: {self.original}\nUpstream release: {self.tag} ({self.target})\n'
+                f'Inspect the Git versions and retain the personal behavior.\n{reason}')
+
+    def repair(self, reason):
+        if self.attempts >= 3:
+            raise RuntimeError('Automatic repair exhausted its three attempts')
+        cooldown = STATE / 'repair-backoff.json'
+        if self.resolver is None:
+            if cooldown.exists():
+                previous = json.loads(cooldown.read_text())
+                if previous.get('key') == self.key and previous.get('retry_after', 0) > time.time():
+                    raise RuntimeError('Automatic repair is cooling down; it retries within six hours')
+            self.attempts += 1
+            self.resolver = Resolver(ROOT, STATE, NAME)
+            self.resolver.prepare()
+        else:
+            self.attempts += 1
+        save('status.json', {'state': 'repairing', 'upstream': self.tag, 'attempt': self.attempts})
+        print(f'Automatic repair {self.attempts}/3 for {self.tag}', flush=True)
+        self.conflict_files.update(run('git', 'diff', '--name-only', '--diff-filter=U', capture=True).splitlines())
+        result = self.resolver.run(self.task(reason))
+        if not result.get('changed_files'):
+            raise RuntimeError('Automatic repair made no changes')
+        self.changed_files.update(result['changed_files'])
+        run('git', 'add', '--all')
+        checked = sorted(self.changed_files | self.conflict_files)
+        try:
+            run('git', 'diff', '--cached', '--check', '--', *checked, capture=True)
+        except subprocess.CalledProcessError as exc:
+            return self.repair('Conflict-marker or whitespace checks still fail in the repaired files:\n' + str(exc.output))
+        if (ROOT / '.git/MERGE_HEAD').exists():
+            run('git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '--no-edit')
+        else:
+            run('git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '-m',
+                f'Repair personal integration with {self.tag}')
+
+    def review(self):
+        if self.resolver is None:
+            return None
+        return self.resolver.run(self.task(
+            'Independent validation has passed. Review all integration and repair changes. '
+            'Reject lost personal behavior, weakened checks, unsafe changes or unresolved conflicts. '
+            'Other changes are the upstream merge. Agent-edited files: ' +
+            json.dumps(sorted(self.changed_files))), review=True)
+
+    def failed(self):
+        if self.attempts:
+            save('repair-backoff.json', {'key': self.key, 'retry_after': time.time() + 6 * 3600})
+
+
+def diagnostic_tail():
+    sections = []
+    for name in ('validation.log', 'build.log'):
+        path = STATE / name
+        if path.exists():
+            sections.append(name + ':\n' + path.read_text(errors='replace')[-24000:])
+    return '\n\n'.join(sections)
+
+
+def validate_and_build(tag, repair):
+    while True:
+        try:
+            (STATE / 'build.log').unlink(missing_ok=True)
+            print('Running independent validation', flush=True)
+            verify()
+            sha = run('git', 'rev-parse', 'HEAD', capture=True)
+            image = 'cpa-manager-plus:auto-' + sha[:12]
+            with (STATE / 'build.log').open('w') as log:
+                docker('build', '-f', 'Dockerfile.manager-server', '--build-arg', 'VERSION=ench-' + tag,
+                       '--build-arg', 'SOURCE_COMMIT=' + sha,
+                       '--label', 'org.opencontainers.image.revision=' + sha,
+                       '--label', 'org.opencontainers.image.version=ench-' + tag, '-t', image, '.', log=log)
+            smoke = NAME + '-smoke'
+            docker('rm', '-f', smoke, check=False)
+            try:
+                docker('run', '-d', '--name', smoke, '--network', 'none', image)
+                healthy(smoke, stable=2)
+            finally:
+                docker('rm', '-f', smoke, check=False)
+        except Exception as exc:
+            repair.repair(f'Independent validation/build failed: {exc}\n{diagnostic_tail()}')
+            continue
+        review = repair.review()
+        if review is not None and not review['approved']:
+            repair.repair('Independent review rejected the repair:\n' + json.dumps(review))
+            continue
+        return sha, image
+
+
+def install_control():
+    if not (STATE / 'auto-update.py').exists():
+        return
+    for name in ('agent_resolver.py', 'agent-instructions.md', 'Dockerfile.agent', 'auto-update.py'):
+        installed = STATE / name
+        content = (ROOT / 'bin/personal' / name).read_bytes()
+        if installed.exists() and installed.read_bytes() == content:
+            continue
+        temp = STATE / (name + '.new')
+        temp.write_bytes(content)
+        temp.chmod(0o600)
+        temp.replace(installed)
+
+
+def recover_candidate():
+    marker = STATE / 'candidate.json'
+    if not marker.exists():
+        return
+    candidate = json.loads(marker.read_text())
+    if candidate.get('root') != str(ROOT.resolve()) or not re.fullmatch(r'[0-9a-f]{40}', candidate.get('original', '')):
+        raise RuntimeError('Invalid interrupted-candidate journal')
+    run('git', 'merge', '--abort', check=False)
+    run('git', 'reset', '--hard', candidate['original'])
+    run('git', 'clean', '-fd')
+    marker.unlink()
+
+
+def control_only_update(deployed, tag):
+    if not re.fullmatch(r'[0-9a-f]{40}', deployed or ''):
+        return False
+    if run('git', 'merge-base', '--is-ancestor', tag, deployed, check=False) != 0:
+        return False
+    paths = run('git', 'diff', '--name-only', deployed, 'HEAD', capture=True).splitlines()
+    return bool(paths) and all(path.startswith('bin/personal/') or path == 'docs/personal-fork.md' for path in paths)
 
 
 def update():
@@ -191,42 +338,43 @@ def update():
     if release['draft'] or release['prerelease'] or not re.fullmatch(r'v\d+\.\d+\.\d+', tag):
         raise RuntimeError('Latest release is not a stable version')
     run('git', 'checkout', '-B', 'auto-update-candidate', 'origin/personal')
+    repair = RepairSession(tag)
+    save('candidate.json', {'root': str(ROOT.resolve()), 'original': repair.original})
     try:
-        run('git', 'merge', '--no-edit', tag)
-    except subprocess.CalledProcessError:
-        conflicts = run('git', 'diff', '--name-only', '--diff-filter=U', capture=True)
+        try:
+            run('git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'merge', '--no-edit', tag)
+        except subprocess.CalledProcessError:
+            conflicts = run('git', 'diff', '--name-only', '--diff-filter=U', capture=True)
+            repair.repair('Resolve these merge conflicts, inspecting all three stages:\n' + conflicts)
+        sha = run('git', 'rev-parse', 'HEAD', capture=True)
+        current = inspect(NAME)['Config'].get('Labels') or {}
+        if current.get('org.opencontainers.image.revision') == sha:
+            healthy(NAME, timeout=30, stable=2)
+            (STATE / 'candidate.json').unlink()
+            return {'state': 'current', 'upstream': tag, 'sha': sha}
+        if control_only_update(current.get('org.opencontainers.image.revision'), tag):
+            run(sys.executable, '-m', 'unittest', 'discover', '-s', 'bin/personal/tests', '-v')
+            install_control()
+            healthy(NAME, timeout=30, stable=2)
+            (STATE / 'candidate.json').unlink()
+            return {'state': 'current', 'upstream': tag, 'sha': sha,
+                    'deployed_sha': current['org.opencontainers.image.revision'], 'automation_updated': True}
+        sha, image = validate_and_build(tag, repair)
+    except Exception:
+        repair.failed()
         run('git', 'merge', '--abort', check=False)
-        raise RuntimeError(f'Upstream {tag} conflicts with personal changes: {conflicts}')
-    sha = run('git', 'rev-parse', 'HEAD', capture=True)
-    current = inspect(NAME)['Config'].get('Labels') or {}
-    if current.get('org.opencontainers.image.revision') == sha:
-        healthy(NAME, timeout=30, stable=2)
-        return {'state': 'current', 'upstream': tag, 'sha': sha}
-    verify()
-    image = 'cpa-manager-plus:auto-' + sha[:12]
-    docker('build', '-f', 'Dockerfile.manager-server', '--build-arg', 'VERSION=ench-' + tag,
-           '--build-arg', 'SOURCE_COMMIT=' + sha,
-           '--label', 'org.opencontainers.image.revision=' + sha,
-           '--label', 'org.opencontainers.image.version=ench-' + tag, '-t', image, '.')
-    # Exercise startup and the panel before touching the real deployment.
-    smoke = NAME + '-smoke'
-    docker('rm', '-f', smoke, check=False)
-    try:
-        docker('run', '-d', '--name', smoke, '--network', 'none', image)
-        healthy(smoke, stable=2)
-    finally:
-        docker('rm', '-f', smoke, check=False)
+        run('git', 'reset', '--hard', repair.original)
+        run('git', 'clean', '-fd')
+        (STATE / 'candidate.json').unlink(missing_ok=True)
+        raise
     # A non-force push refuses a concurrent personal-branch change.
     run('git', 'push', 'origin', 'HEAD:personal')
+    (STATE / 'candidate.json').unlink()
     deploy(image, sha)
     # Keep the installed runner in step with tested code, without executing a
     # partially updated script in this process.
-    installed = STATE / 'auto-update.py'
-    if installed.exists():
-        temp = STATE / 'auto-update.py.new'
-        temp.write_bytes((ROOT / 'bin/personal/auto-update.py').read_bytes())
-        temp.replace(installed)
-    return {'state': 'deployed', 'upstream': tag, 'sha': sha, 'image': image}
+    install_control()
+    return {'state': 'deployed', 'upstream': tag, 'sha': sha, 'image': image, 'agent_repairs': repair.attempts}
 
 
 def main():
@@ -236,6 +384,8 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
+        cleanup_agents(NAME)
+        recover_candidate()
         if sys.argv[1:] == ['--recover-only']:
             recover()
             return
