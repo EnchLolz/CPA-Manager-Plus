@@ -22,7 +22,12 @@ def run(*args, capture=False, cwd=ROOT, check=True):
 
 
 def docker(*args, **kwargs):
-    return run('docker', *args, **kwargs)
+    try:
+        return run('docker', *args, **kwargs)
+    except subprocess.CalledProcessError as exc:
+        # Docker creation arguments include the existing environment. Never
+        # copy those values into a status file or exception traceback.
+        raise RuntimeError(f'Docker {args[0]} failed with exit code {exc.returncode}') from None
 
 
 def inspect(name):
@@ -140,8 +145,11 @@ def verify():
     node = re.search(r'FROM\s+--platform=\$BUILDPLATFORM\s+(\S+)\s+AS web-build', dockerfile)[1]
     go = re.search(r'FROM\s+--platform=\$BUILDPLATFORM\s+(\S+)\s+AS service-build', dockerfile)[1]
     uid = f'{os.getuid()}:{os.getgid()}'
+    test_image = 'cpa-manager-plus:verify-node'
+    docker('build', '-f', 'bin/personal/Dockerfile.verify', '--build-arg',
+           'NODE_IMAGE=' + node, '-t', test_image, '.')
     docker('run', '--rm', '--user', uid, '-e', 'HOME=/tmp', '-v', str(ROOT) + ':/src',
-           '-w', '/src', node, 'sh', '-ec',
+           '-w', '/src', test_image, 'sh', '-ec',
            'npm ci && npm run lint && npm run type-check && npm run test:web && npm run test:repo')
     docker('run', '--rm', '--user', uid, '-e', 'HOME=/tmp', '-e', 'GOCACHE=/tmp/go-cache',
            '-v', str(ROOT) + ':/src', '-w', '/src/apps/manager-server', go,
