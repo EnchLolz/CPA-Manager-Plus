@@ -12,7 +12,7 @@ if systemctl --user is-active --quiet cpamp-auto-update.service; then
 fi
 trap 'systemctl --user start cpamp-auto-update.timer' EXIT
 umask 077
-python3 - "$state" <<'PY'
+python3 -I - "$state" <<'PY'
 import json, os, pathlib, sys, tomllib, yaml
 state = pathlib.Path(sys.argv[1])
 proxy = yaml.safe_load((pathlib.Path.home() / 'cliproxyapi/config.yaml').read_text())

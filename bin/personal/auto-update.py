@@ -155,6 +155,10 @@ def _verify(log):
     node = re.search(r'FROM\s+--platform=\$BUILDPLATFORM\s+(\S+)\s+AS web-build', dockerfile)[1]
     go = re.search(r'FROM\s+--platform=\$BUILDPLATFORM\s+(\S+)\s+AS service-build', dockerfile)[1]
     uid = f'{os.getuid()}:{os.getgid()}'
+    metadata_mounts = []
+    for path in ('.git', '.gitignore', '.gitattributes', '.dockerignore', 'bin/personal'):
+        if (ROOT / path).exists():
+            metadata_mounts.extend(['-v', str(ROOT / path) + ':/src/' + path + ':ro'])
     test_image = 'cpa-manager-plus:verify-node'
     docker('build', '-f', 'bin/personal/Dockerfile.verify', '--build-arg',
            'NODE_IMAGE=' + node, '-t', test_image, '.', log=log)
@@ -165,14 +169,14 @@ def _verify(log):
             pool.submit(docker, 'run', '--rm', '--cpus', '2', '--cpu-shares', '128',
                         '--memory', '3g', '--memory-swap', '3g', '--user', uid, '-e', 'HOME=/tmp',
                         '-e', 'GIT_CONFIG_COUNT=1', '-e', 'GIT_CONFIG_KEY_0=safe.directory',
-                        '-e', 'GIT_CONFIG_VALUE_0=/src',
-                        '-v', str(ROOT) + ':/src', '-w', '/src', test_image, 'sh', '-ec',
+                        '-e', 'GIT_CONFIG_VALUE_0=/src', '-e', 'GIT_OPTIONAL_LOCKS=0',
+                        '-v', str(ROOT) + ':/src', *metadata_mounts, '-w', '/src', test_image, 'sh', '-ec',
                         'npm ci && npm run lint && npm run type-check && '
                         'npm run test:web -- --maxWorkers=4 && npm run test:repo -- --maxWorkers=4', log=log),
             pool.submit(docker, 'run', '--rm', '--cpus', '2', '--cpu-shares', '128',
                         '--memory', '3g', '--memory-swap', '3g', '--user', uid, '-e', 'HOME=/tmp',
-                        '-e', 'GOCACHE=/tmp/go-cache', '-e', 'GOMAXPROCS=4',
-                        '-v', str(ROOT) + ':/src', '-w', '/src/apps/manager-server', go,
+                        '-e', 'GOCACHE=/tmp/go-cache', '-e', 'GOMAXPROCS=4', '-e', 'GIT_OPTIONAL_LOCKS=0',
+                        '-v', str(ROOT) + ':/src', *metadata_mounts, '-w', '/src/apps/manager-server', go,
                         'sh', '-ec', 'go test -p 4 ./...', log=log),
         ]
         failures = []
@@ -183,7 +187,12 @@ def _verify(log):
                 failures.append(exc)
         if failures:
             raise failures[0]
-    run(sys.executable, '-m', 'unittest', 'discover', '-s', 'bin/personal/tests', '-v', log=log)
+    # Repository-controlled tests cannot replace Git/publisher configuration or
+    # smuggle source edits into the image after the agent review boundary.
+    run('git', 'diff', '--no-ext-diff', '--no-textconv', '--exit-code', 'HEAD')
+    if run('git', 'ls-files', '--others', '--exclude-standard', capture=True):
+        raise RuntimeError('Validation left untracked source files')
+    run(sys.executable, '-I', '-m', 'unittest', 'discover', '-s', 'bin/personal/tests', '-v', log=log)
 
 
 class RepairSession:
@@ -353,7 +362,7 @@ def update():
             (STATE / 'candidate.json').unlink()
             return {'state': 'current', 'upstream': tag, 'sha': sha}
         if control_only_update(current.get('org.opencontainers.image.revision'), tag):
-            run(sys.executable, '-m', 'unittest', 'discover', '-s', 'bin/personal/tests', '-v')
+            run(sys.executable, '-I', '-m', 'unittest', 'discover', '-s', 'bin/personal/tests', '-v')
             install_control()
             healthy(NAME, timeout=30, stable=2)
             (STATE / 'candidate.json').unlink()
