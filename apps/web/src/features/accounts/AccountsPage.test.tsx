@@ -3864,7 +3864,7 @@ describe('AccountsPage replacement flows', () => {
     });
     await flushPromises();
     expect(mocks.getAccountHistory).toHaveBeenCalledTimes(6);
-  });
+  }, 30_000);
 
   it('keeps successful history batches when another batch fails', async () => {
     mocks.files = Array.from({ length: 201 }, (_, index) =>
@@ -4745,7 +4745,7 @@ describe('AccountsPage replacement flows', () => {
     expect(requests.map((request) => request.accounts.length)).toEqual([200, 200, 200, 1]);
     expect(activeRequests).toBe(0);
     expect(peakActiveRequests).toBe(2);
-  });
+  }, 30_000);
 
   it('offers and applies the unknown plan filter', async () => {
     mocks.files = [

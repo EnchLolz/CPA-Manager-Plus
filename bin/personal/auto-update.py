@@ -47,8 +47,8 @@ def healthy(name, timeout=120, stable=15):
     since = None
     while time.monotonic() < deadline:
         ok = docker('exec', name, 'sh', '-c',
-                    'wget -q -O /dev/null http://127.0.0.1:18317/health && '
-                    'wget -q -O /dev/null http://127.0.0.1:18317/management.html',
+                    'wget -T 5 -q -O /dev/null http://127.0.0.1:18317/health && '
+                    'wget -T 5 -q -O /dev/null http://127.0.0.1:18317/management.html',
                     check=False) == 0
         if ok:
             since = since or time.monotonic()
@@ -153,11 +153,15 @@ def verify():
     # Bound test concurrency so scheduled checks leave headroom for live traffic.
     with ThreadPoolExecutor(max_workers=2) as pool:
         checks = [
-            pool.submit(docker, 'run', '--rm', '--user', uid, '-e', 'HOME=/tmp',
+            pool.submit(docker, 'run', '--rm', '--cpus', '2', '--cpu-shares', '128',
+                        '--memory', '3g', '--memory-swap', '3g', '--user', uid, '-e', 'HOME=/tmp',
+                        '-e', 'GIT_CONFIG_COUNT=1', '-e', 'GIT_CONFIG_KEY_0=safe.directory',
+                        '-e', 'GIT_CONFIG_VALUE_0=/src',
                         '-v', str(ROOT) + ':/src', '-w', '/src', test_image, 'sh', '-ec',
                         'npm ci && npm run lint && npm run type-check && '
                         'npm run test:web -- --maxWorkers=4 && npm run test:repo -- --maxWorkers=4'),
-            pool.submit(docker, 'run', '--rm', '--user', uid, '-e', 'HOME=/tmp',
+            pool.submit(docker, 'run', '--rm', '--cpus', '2', '--cpu-shares', '128',
+                        '--memory', '3g', '--memory-swap', '3g', '--user', uid, '-e', 'HOME=/tmp',
                         '-e', 'GOCACHE=/tmp/go-cache', '-e', 'GOMAXPROCS=4',
                         '-v', str(ROOT) + ':/src', '-w', '/src/apps/manager-server', go,
                         'sh', '-ec', 'go test -p 4 ./...'),
