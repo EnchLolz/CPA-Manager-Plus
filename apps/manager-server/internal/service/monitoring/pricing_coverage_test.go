@@ -50,6 +50,87 @@ func TestAnalyticsRecoversIncompletePricingFromRetainedEvents(t *testing.T) {
 	}
 }
 
+// Online raw rows are authoritative even below the monitoring projection watermark.
+// An incomplete projection must not make recoverable history look unpriceable.
+func TestAnalyticsRecoversOnlineProjectionGapWithArchivedHistory(t *testing.T) {
+	db, sqlDB, request, want := pricingCoverageFixture(t)
+	ctx := context.Background()
+	if _, err := sqlDB.ExecContext(ctx, `delete from usage_monitoring_event_projection_v1
+		where event_id in (select id from usage_events);
+		delete from usage_pricing_hourly_rollups_v1`); err != nil {
+		t.Fatal(err)
+	}
+	before := pricingCoverageCounts(t, sqlDB)
+	got, err := New(db, true).Analytics(ctx, request)
+	if err != nil {
+		t.Fatalf("recover online raw alongside archived history: %v", err)
+	}
+	assertPricingCoverageAnalytics(t, got, want)
+	if after := pricingCoverageCounts(t, sqlDB); after != before {
+		t.Fatalf("read modified retained history: before=%v after=%v", before, after)
+	}
+}
+
+func TestAnalyticsComparisonRecoversOnlineProjectionGap(t *testing.T) {
+	db, sqlDB, request, _ := pricingCoverageFixture(t)
+	ctx := context.Background()
+	hour := time.Hour.Milliseconds()
+	request.FromMS += 3 * hour
+	request.ToMS = request.FromMS + hour
+	comparisonFromMS := request.FromMS - hour
+	onlineMS := comparisonFromMS + 1_000
+	want, err := New(db, true).Analytics(ctx, request)
+	if err != nil || want.Summary == nil || want.SummaryComparison == nil {
+		t.Fatalf("baseline comparison: summary=%#v comparison=%#v error=%v", want.Summary, want.SummaryComparison, err)
+	}
+	deleted, err := sqlDB.ExecContext(ctx, `delete from usage_monitoring_event_projection_v1
+		where event_id in (select id from usage_events where timestamp_ms = ?)`, onlineMS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected, err := deleted.RowsAffected(); err != nil || affected != 1 {
+		t.Fatalf("fixture did not remove exactly one projection row: affected=%d error=%v", affected, err)
+	}
+	rollups, err := sqlDB.ExecContext(ctx, `delete from usage_pricing_hourly_rollups_v1
+		where bucket_ms >= ? and bucket_ms < ?`, comparisonFromMS, request.FromMS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected, err := rollups.RowsAffected(); err != nil || affected < 1 {
+		t.Fatalf("fixture did not remove prior-period rollups: affected=%d error=%v", affected, err)
+	}
+	got, err := New(db, true).Analytics(ctx, request)
+	if err != nil {
+		t.Fatalf("recover optional comparison from intact raw event: %v", err)
+	}
+	if !reflect.DeepEqual(got.Summary, want.Summary) || !reflect.DeepEqual(got.SummaryComparison, want.SummaryComparison) {
+		t.Fatalf("comparison recovery differs: got=%#v / %#v want=%#v / %#v",
+			got.Summary, got.SummaryComparison, want.Summary, want.SummaryComparison)
+	}
+}
+
+func TestAccountHistoryRecoversOnlineProjectionGap(t *testing.T) {
+	db, sqlDB, _, _ := pricingCoverageFixture(t)
+	ctx := context.Background()
+	request := pricingCoverageAccountRequest()
+	want, err := New(db).AccountHistory(ctx, request)
+	if err != nil {
+		t.Fatalf("baseline account history: %v", err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `delete from usage_monitoring_event_projection_v1
+		where event_id in (select id from usage_events);
+		delete from usage_pricing_account_rollups_v1`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(db).AccountHistory(ctx, request)
+	if err != nil {
+		t.Fatalf("recover account history using original raw events: %v", err)
+	}
+	if !reflect.DeepEqual(got.Items, want.Items) {
+		t.Fatalf("account pricing recovery differs: got=%#v want=%#v", got.Items, want.Items)
+	}
+}
+
 func TestAnalyticsIncompletePricingFailsClosedWithoutCompatibleEvents(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -59,7 +140,6 @@ func TestAnalyticsIncompletePricingFailsClosedWithoutCompatibleEvents(t *testing
 		{"obsolete projection", `update usage_monitoring_rollup_state set structure_revision = 'obsolete' where rollup_name = 'projection_v1'`},
 		{"unsupported projection", `update usage_monitoring_rollup_state set schema_version = 0 where rollup_name = 'projection_v1'`},
 		{"clearing projection", `update usage_monitoring_rollup_state set status = 'clearing' where rollup_name = 'projection_v1'`},
-		{"projection query error", `alter table usage_monitoring_event_projection_v1 rename column normalized_total_input_tokens to unavailable_tokens`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			db, sqlDB, request, _ := pricingCoverageFixture(t)
@@ -75,6 +155,24 @@ func TestAnalyticsIncompletePricingFailsClosedWithoutCompatibleEvents(t *testing
 				t.Fatalf("incomplete history returned success: summary=%#v error=%v", got.Summary, err)
 			}
 		})
+	}
+}
+
+func TestAnalyticsPrimaryPeriodRecoveryQueryErrorFailsFatal(t *testing.T) {
+	db, sqlDB, request, _ := pricingCoverageFixture(t)
+	ctx := context.Background()
+	if _, err := sqlDB.ExecContext(ctx, `delete from usage_pricing_hourly_rollups_v1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `alter table usage_monitoring_event_projection_v1 rename column normalized_total_input_tokens to unavailable_tokens`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(db, true).Analytics(ctx, request)
+	if err == nil || !errors.Is(err, store.ErrUsagePricingRecoveryFailed) || errors.Is(err, store.ErrUsagePricingCoverageIncomplete) {
+		t.Fatalf("expected ErrUsagePricingRecoveryFailed, got err=%v", err)
+	}
+	if got.Summary != nil {
+		t.Fatalf("query error returned summary: %#v", got.Summary)
 	}
 }
 
@@ -94,9 +192,47 @@ func TestAnalyticsPricingCoverageChecksComparisonPeriod(t *testing.T) {
 		t.Fatalf("current period must be complete: %#v error=%v", current.Summary, err)
 	}
 	request.Include.SummaryComparison = true
-	_, err := New(db, true).Analytics(ctx, request)
-	if !errors.Is(err, store.ErrUsagePricingCoverageIncomplete) {
-		t.Fatalf("incomplete comparison error = %v", err)
+	got, err := New(db, true).Analytics(ctx, request)
+	if err != nil {
+		t.Fatalf("analytics failed with incomplete comparison pricing: %v", err)
+	}
+	if got.Summary == nil || got.Summary.TotalCalls != 1 {
+		t.Fatalf("current summary expected 1 call, got: %#v", got.Summary)
+	}
+	if got.SummaryComparison != nil {
+		t.Fatalf("summary comparison must be omitted when incomplete: %#v", got.SummaryComparison)
+	}
+	if got.Coverage == nil {
+		t.Fatalf("coverage must be populated")
+	}
+	hasLimitation := false
+	for _, lim := range got.Coverage.FidelityLimitations {
+		if lim == "summary_comparison_requires_raw_events" {
+			hasLimitation = true
+			break
+		}
+	}
+	if !hasLimitation {
+		t.Fatalf("coverage limitations must contain summary_comparison_requires_raw_events: %#v", got.Coverage.FidelityLimitations)
+	}
+}
+
+func TestAnalyticsComparisonPeriodRecoveryQueryErrorFailsFatal(t *testing.T) {
+	db, sqlDB, request, _ := pricingCoverageFixture(t)
+	ctx := context.Background()
+	request.FromMS += 2 * time.Hour.Milliseconds()
+	request.ToMS = request.FromMS + time.Hour.Milliseconds()
+	if _, err := sqlDB.ExecContext(ctx, `delete from usage_pricing_hourly_rollups_v1 where bucket_ms < ?;
+		alter table usage_monitoring_event_projection_v1 rename column normalized_total_input_tokens to unavailable_tokens`, request.FromMS); err != nil {
+		t.Fatal(err)
+	}
+	request.Include.SummaryComparison = true
+	got, err := New(db, true).Analytics(ctx, request)
+	if err == nil || !errors.Is(err, store.ErrUsagePricingRecoveryFailed) || errors.Is(err, store.ErrUsagePricingCoverageIncomplete) {
+		t.Fatalf("expected ErrUsagePricingRecoveryFailed on comparison recovery, got err=%v", err)
+	}
+	if got.Summary != nil {
+		t.Fatalf("query error returned summary: %#v", got.Summary)
 	}
 }
 

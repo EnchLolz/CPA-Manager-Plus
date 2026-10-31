@@ -8,6 +8,7 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
 import { IconCode, IconCopy, IconRefreshCw } from '@/components/ui/icons';
 import type { AccountRow } from '@/features/accounts/model/accountRows';
+import { getAccountModelExclusionPriority } from '@/features/accounts/model/accountModelRules';
 import { getProviderLabel } from '@/features/accounts/model/accountsPagePresentation';
 import type { UseAuthFileConfigurationEditorResult } from '@/features/authFiles/hooks/useAuthFileConfigurationEditor';
 import {
@@ -17,6 +18,7 @@ import {
   type AuthFileConfigurationErrorKey,
   type XaiRoutingMode,
 } from '@/features/authFiles/model/authFileConfiguration';
+import { useAuthStore } from '@/stores/useAuthStore';
 import styles from '@/features/accounts/AccountsPage.module.scss';
 
 type AccountConfigurationTabProps = {
@@ -33,6 +35,9 @@ export function AccountConfigurationTab({
   onCopyText,
 }: AccountConfigurationTabProps) {
   const { t } = useTranslation();
+  const exclusionPriority = getAccountModelExclusionPriority(
+    useAuthStore((authState) => authState.serverVersion)
+  );
   const reloadButtonId = useId();
   const {
     state,
@@ -46,7 +51,12 @@ export function AccountConfigurationTab({
   } = editor;
   const capabilities = getAuthFileConfigurationCapabilities(state?.providerKey || row.provider);
   const providerLabel = getProviderLabel(state?.providerKey || row.provider, t);
-  const disabled = disableControls || sharedSourceReadOnly || state?.saving === true;
+  const disabled =
+    disableControls ||
+    sharedSourceReadOnly ||
+    Boolean(state?.error) ||
+    state?.saving === true ||
+    state?.loading === true;
   const reloadAndRestoreFocus = () => {
     void editor.reload().then(() => {
       if (typeof window === 'undefined') return;
@@ -90,7 +100,7 @@ export function AccountConfigurationTab({
     );
   }
 
-  if (!state || state.loading) {
+  if (!state || (state.loading && !state.record)) {
     return (
       <div className={styles.configurationLoading} role="status" aria-live="polite">
         <span>{t('accounts.config_loading')}</span>
@@ -98,7 +108,7 @@ export function AccountConfigurationTab({
     );
   }
 
-  if (state.error || !draft || !state.record) {
+  if (!draft || !state.record) {
     return (
       <div className={styles.drawerDetailStack}>
         <section className={styles.drawerSection}>
@@ -127,7 +137,23 @@ export function AccountConfigurationTab({
       data-provider={state.providerKey}
       role="region"
       aria-label={t('accounts.detail_tab_config')}
+      aria-busy={state.loading}
     >
+      {state.error ? (
+        <div className={styles.configurationLoadError} role="alert">
+          <span>{state.error}</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            id={reloadButtonId}
+            data-account-config-reload="retry"
+            onClick={reloadAndRestoreFocus}
+          >
+            <IconRefreshCw size={14} />
+            {t('common.retry')}
+          </Button>
+        </div>
+      ) : null}
       <div className={styles.configurationToolbar}>
         {dirty ? (
           <span className={styles.configurationDirtyBadge} role="status">
@@ -371,6 +397,15 @@ export function AccountConfigurationTab({
                 : 'accounts.config_excluded_models_hint'
             )}
           </div>
+          {!sharedSourceReadOnly && exclusionPriority !== 'merge' ? (
+            <div className="hint" role="note">
+              {t(
+                exclusionPriority === 'override'
+                  ? 'accounts.config_excluded_models_override_hint'
+                  : 'accounts.config_excluded_models_precedence_unknown_hint'
+              )}
+            </div>
+          ) : null}
         </div>
       </section>
 

@@ -22,17 +22,19 @@ For most deployments, use separate domains or subdomains for CPAMP and CPA. Read
 
 ## Route Boundaries
 
-| Traffic                                      | Recommended backend | Notes                                                                                                                                                  |
-| -------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/management.html`                           | CPAMP `:18317`      | Manager Server-hosted management panel.                                                                                                                |
-| `/usage-service/*`                           | CPAMP `:18317`      | Manager Server mode detection and config APIs.                                                                                                         |
-| `/v0/management/*`                           | CPAMP `:18317`      | CPAMP handles usage, model-prices, aliases, dashboard, monitoring, and codex-inspection first; other management APIs are then proxied by CPAMP to CPA. |
-| `/v0/resource/plugins/*`                     | CPAMP `:18317`      | Plugin page resources used by the CPAMP panel. CPAMP proxies them to CPA when needed.                                                                  |
-| `/models`                                    | CPAMP `:18317`      | Compatibility proxy to CPA after setup.                                                                                                                |
-| `/v1/*`, `/v1beta/*`, `/backend-api/codex/*` | CPA `:8317`         | Actual model API, Codex API, and provider requests.                                                                                                    |
-| OAuth callback                               | CPA `:8317`         | For example `/anthropic/callback` and `/codex/callback`.                                                                                               |
-| New paths without explicit ownership         | CPA `:8317`         | Avoid blocking future CPA endpoints.                                                                                                                   |
-| RESP Pub/Sub / RESP pop                      | Direct CPA `:8317`  | Cannot go through an HTTP reverse proxy.                                                                                                               |
+| Traffic                                      | Recommended backend | Notes                                                                                                                                                                                                  |
+| -------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/management.html`                           | CPAMP `:18317`      | Manager Server-hosted management panel.                                                                                                                                                                |
+| `/favicon.ico`, `/apple-touch-icon.png`      | CPAMP `:18317`      | Root icon fallbacks for older Safari / iOS; modern Safari can use the icons embedded in the panel.                                                                                                     |
+| `/usage-service/*`                           | CPAMP `:18317`      | Manager Server mode detection and config APIs.                                                                                                                                                         |
+| `/v0/management/*`                           | CPAMP `:18317`      | CPAMP handles usage, model-prices, aliases, dashboard, monitoring, and codex-inspection first; other management APIs are then proxied by CPAMP to CPA.                                                 |
+| `/v0/resource/plugins/*`                     | CPAMP `:18317`      | Plugin page resources used by the CPAMP panel. CPAMP proxies them to CPA when needed.                                                                                                                  |
+| `/v8/management/config/api-keys[/*]`         | CPAMP `:18317`      | Plugin pages read CPA v8 provider key groups, including group names and `auth_index`. CPAMP forwards `GET` only and accepts the admin key only; CPAMP does not forward other `/v8/management/*` paths. |
+| `/models`                                    | CPAMP `:18317`      | Compatibility proxy to CPA after setup.                                                                                                                                                                |
+| `/v1/*`, `/v1beta/*`, `/backend-api/codex/*` | CPA `:8317`         | Actual model API, Codex API, and provider requests.                                                                                                                                                    |
+| OAuth callback                               | CPA `:8317`         | For example `/anthropic/callback` and `/codex/callback`.                                                                                                                                               |
+| New paths without explicit ownership         | CPA `:8317`         | Avoid blocking future CPA endpoints.                                                                                                                                                                   |
+| RESP Pub/Sub / RESP pop                      | Direct CPA `:8317`  | Cannot go through an HTTP reverse proxy.                                                                                                                                                               |
 
 Recommended architecture:
 
@@ -40,9 +42,12 @@ Recommended architecture:
 Browser
   -> https://your-domain.com
       -> /management.html       -> CPA Manager Plus :18317
+      -> /favicon.ico            -> CPA Manager Plus :18317
+      -> /apple-touch-icon.png   -> CPA Manager Plus :18317
       -> /usage-service/*       -> CPA Manager Plus :18317
       -> /v0/management/*       -> CPA Manager Plus :18317
       -> /v0/resource/plugins/* -> CPA Manager Plus :18317
+      -> /v8/management/config/api-keys[/*] -> CPA Manager Plus :18317
       -> /v1/*, /backend-api/*  -> CPA :8317
       -> fallback               -> CPA :8317
 ```
@@ -179,8 +184,10 @@ server {
 
     # ===== CPA Manager Plus =====
 
-    location = /management.html { proxy_pass http://cpamp; }
-    location = /health          { proxy_pass http://cpamp; }
+    location = /management.html       { proxy_pass http://cpamp; }
+    location = /favicon.ico            { proxy_pass http://cpamp; }
+    location = /apple-touch-icon.png   { proxy_pass http://cpamp; }
+    location = /health                 { proxy_pass http://cpamp; }
     location = /status          { proxy_pass http://cpamp; }
     location = /setup           { proxy_pass http://cpamp; }
 
@@ -198,6 +205,11 @@ server {
 
     # CPAMP plugin page resources. Without this rule, plugin pages may be blank or return 404 for assets.
     location ^~ /v0/resource/plugins/ { proxy_pass http://cpamp; }
+
+    # Read-only CPA v8 provider key groups used by plugin pages. CPAMP forwards GET only and accepts the admin key only.
+    # Other /v8/management/* paths keep using the CPA fallback.
+    location = /v8/management/config/api-keys   { proxy_pass http://cpamp; }
+    location ^~ /v8/management/config/api-keys/ { proxy_pass http://cpamp; }
 
     # /models is provided through CPAMP's compatibility proxy
     # If CPAMP has not completed setup yet, this path may return 412
@@ -322,24 +334,28 @@ After configuring Nginx, test in this order:
 # 1. CPAMP panel should be reachable
 curl -I https://your-domain.com/management.html
 
-# 2. CPAMP health check
+# 2. Older Safari / iOS icon fallbacks should reach CPAMP
+curl -I https://your-domain.com/favicon.ico
+curl -I https://your-domain.com/apple-touch-icon.png
+
+# 3. CPAMP health check
 curl -i https://your-domain.com/health
 
-# 3. CPA health check
+# 4. CPA health check
 curl -i https://your-domain.com/healthz
 
-# 4. CPAMP runtime info
+# 5. CPAMP runtime info
 curl -i https://your-domain.com/usage-service/info
 
-# 5. CPA API request, should hit CPA
+# 6. CPA API request, should hit CPA
 curl -i https://your-domain.com/v1/models \
   -H "Authorization: Bearer your API Key"
 
-# 6. CPAMP-proxied management API, should hit CPAMP first and then CPA
+# 7. CPAMP-proxied management API, should hit CPAMP first and then CPA
 curl -i https://your-domain.com/v0/management/config \
   -H "Authorization: Bearer your CPAMP Admin Key"
 
-# 7. Plugin resource path should hit CPAMP. A missing resource may return 404,
+# 8. Plugin resource path should hit CPAMP. A missing resource may return 404,
 # but it should not be sent to the wrong upstream by Nginx.
 curl -i https://your-domain.com/v0/resource/plugins/
 ```

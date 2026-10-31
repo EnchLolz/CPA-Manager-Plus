@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web-build
+FROM --platform=$BUILDPLATFORM node:22.23.4-alpine AS web-build
 ARG VERSION=dev
 WORKDIR /app
 COPY package*.json ./
@@ -8,7 +8,7 @@ COPY apps/web ./apps/web
 WORKDIR /app/apps/web
 RUN VERSION=$VERSION npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS service-build
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS service-build
 ARG VERSION=dev
 ARG SOURCE_COMMIT=unknown
 ARG TARGETOS
@@ -16,6 +16,8 @@ ARG TARGETARCH
 WORKDIR /src
 COPY apps/manager-server ./apps/manager-server
 COPY --from=web-build /app/apps/web/dist/index.html ./apps/manager-server/internal/httpapi/web/management.html
+COPY --from=web-build /app/apps/web/dist/favicon.ico ./apps/manager-server/internal/httpapi/web/favicon.ico
+COPY --from=web-build /app/apps/web/dist/apple-touch-icon.png ./apps/manager-server/internal/httpapi/web/apple-touch-icon.png
 WORKDIR /src/apps/manager-server
 RUN go mod download
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-X github.com/seakee/cpa-manager-plus/apps/manager-server/internal/buildinfo.Version=$VERSION -X github.com/seakee/cpa-manager-plus/apps/manager-server/internal/buildinfo.SourceCommit=$SOURCE_COMMIT" -o /out/cpa-manager-plus ./cmd/cpa-manager-plus

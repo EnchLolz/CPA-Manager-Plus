@@ -9,6 +9,14 @@ import { AccountConfigurationTab } from './AccountConfigurationTab';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const mockAuthState = vi.hoisted(() => ({
+  serverVersion: null as string | null,
+  serverCommit: null as string | null,
+}));
+vi.mock('@/stores/useAuthStore', () => ({
+  useAuthStore: (selector: (state: typeof mockAuthState) => unknown) => selector(mockAuthState),
+}));
+
 vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>();
   return {
@@ -128,6 +136,34 @@ const renderTab = (
 };
 
 describe('AccountConfigurationTab', () => {
+  it.each([true, false])(
+    'retains the loaded form during reload or failure (loading=%s)',
+    (loading) => {
+      const editor = makeEditor('codex', makeDraft({ prefix: 'retained-prefix' }));
+      editor.state = { ...editor.state!, loading, error: loading ? '' : 'refresh offline' };
+      const renderer = renderTab(makeRow(), editor);
+      expect(
+        renderer.root.findAllByType(Input).some((node) => node.props.value === 'retained-prefix')
+      ).toBe(true);
+      expect(findLoadingSpinners(renderer)).toHaveLength(0);
+      expect(renderer.root.findAllByType(Input).every((node) => node.props.disabled)).toBe(true);
+      if (!loading) {
+        expect(readText(renderer.toJSON())).toContain('refresh offline');
+        expect(
+          renderer.root
+            .findAllByType('button')
+            .filter((node) => node.props['data-account-config-reload'] === 'retry')
+        ).toHaveLength(1);
+      }
+      editor.state = { ...editor.state!, loading: false, error: '' };
+      act(() => renderer.update(
+        <AccountConfigurationTab row={makeRow()} disableControls={false} editor={editor} onCopyText={vi.fn()} />
+      ));
+      expect(renderer.root.findAllByType(Input).some((node) => !node.props.disabled)).toBe(true);
+      act(() => renderer.unmount());
+    }
+  );
+
   it('keeps the initial configuration state free of animated loading icons', () => {
     const editor = makeEditor('codex');
     editor.state = null;
@@ -314,5 +350,25 @@ describe('AccountConfigurationTab', () => {
     expect(text).toContain('accounts.detail_runtime_config_unavailable');
     expect(text).toContain('accounts.config_runtime_only_desc');
     expect(text).not.toContain('common.save');
+  });
+
+  it.each([
+    ['v8.0.32', null],
+    ['v8.0.33', 'accounts.config_excluded_models_override_hint'],
+    ['custom', 'accounts.config_excluded_models_precedence_unknown_hint'],
+  ] as const)('explains credential exclusion precedence on CPA %s', (serverVersion, hint) => {
+    mockAuthState.serverVersion = serverVersion;
+    try {
+      const text = readText(renderTab(makeRow(), makeEditor('codex')).toJSON());
+      expect(text).toContain('accounts.config_excluded_models_hint');
+      expect(text.includes('accounts.config_excluded_models_override_hint')).toBe(
+        hint === 'accounts.config_excluded_models_override_hint'
+      );
+      expect(text.includes('accounts.config_excluded_models_precedence_unknown_hint')).toBe(
+        hint === 'accounts.config_excluded_models_precedence_unknown_hint'
+      );
+    } finally {
+      mockAuthState.serverVersion = null;
+    }
   });
 });
