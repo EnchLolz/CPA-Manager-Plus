@@ -1,0 +1,16 @@
+[Unit]
+Description=Test and deploy CPA Manager Plus stable updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/bird/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GIT_TERMINAL_PROMPT=0
+Environment=CPAMP_REPO=%h/.local/state/cpamp-auto-update/repo
+Environment=GIT_SSH_COMMAND=ssh -o BatchMode=yes
+ExecStart=%h/.local/bin/agent-env exec --cwd %h/.local/state/cpamp-auto-update/repo -- /usr/bin/python3 %h/.local/state/cpamp-auto-update/auto-update.py
+TimeoutStartSec=7200
+TimeoutStopSec=180
+UMask=0077
+

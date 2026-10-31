@@ -1,0 +1,12 @@
+[Unit]
+Description=Check CPA Manager Plus for stable updates every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=15min
+RandomizedDelaySec=60
+Persistent=true
+Unit=cpamp-auto-update.service
+
+[Install]
+WantedBy=timers.target

@@ -44,31 +44,54 @@ rebased onto each upstream release rather than merged.
 Upstream files touched, each by a line or two: `MainRoutes.tsx`, `MainLayout.tsx`,
 `router.go`, `main.go`. Everything else lives in new files.
 
-## Keeping up with upstream
+## Automatic updates on Kiwi
 
-`personal-sync.yml` runs daily. It mirrors upstream `main`, finds the newest stable
-upstream tag, and rebases `personal` onto it:
+A persistent user timer, `cpamp-auto-update.timer`, checks the latest stable
+GitHub release every 15 minutes. It runs while the Mac is offline. The dedicated
+checkout is `~/.local/state/cpamp-auto-update/repo`; do not edit it manually.
 
-- Clean rebase: a PR `sync/vX.Y.Z -> personal` appears. Review the upstream diff,
-  merge with rebase or fast-forward, then tag.
-- Conflict: an issue lists the conflicting files and the exact rebase command.
+The updater fetches `personal` and upstream tags, merges the latest stable
+release, runs frontend lint/type checking/tests, repository tests and all Go
+tests in the container toolchains declared by upstream, then builds the image.
+It smoke-tests the panel in an isolated container, pushes the tested commit to
+`personal`, and deploys on Kiwi. SSH authentication avoids the GitHub Actions
+workflow-token restriction. The old Actions sync workflow has been removed.
+The optional `personal-image.yml` workflow remains for manual GHCR publishing.
 
-Manual equivalent:
+Deployment preserves the existing environment, Tailscale port binding and
+restart policy. It stops the manager, copies its complete data volume, then
+starts the new image with that copy. The original container and data remain
+available for automatic rollback if the replacement fails its health checks.
+Two prior deployments are retained. The updater has a lock and a persistent
+recovery journal for interrupted deployments. There is a brief interruption
+while data is copied and the replacement starts.
+
+Conflicting merges, failed tests, network failures and unsupported deployment
+layouts stop the update and keep the existing deployment. The timer retries;
+it never discards custom changes to force an update. Arbitrary upstream
+conflicts can still require a code fix. Stable releases are tracked, not
+unreleased commits on upstream main.
+
+Inspect the service and its machine-readable result:
 
 ```bash
-git fetch upstream --tags
-git rebase --onto vX.Y.Z "$(git describe --tags --abbrev=0 --match 'v*' personal)" personal
-npm run type-check && npm run test:web && (cd apps/manager-server && go test ./...)
-git push --force-with-lease origin personal
+systemctl --user status cpamp-auto-update.timer cpamp-auto-update.service
+journalctl --user -u cpamp-auto-update.service -n 100
+cat ~/.local/state/cpamp-auto-update/status.json
 ```
 
-## Releasing and deploying
+The service uses an installed copy of `bin/personal/auto-update.py`, updated
+atomically after a successful deployment. Its `CPAMP_REPO` points at the
+separate checkout. Both units are in `bin/personal/`.
+
+To trigger a check or disable automatic updates:
 
 ```bash
-git tag ench-v1.14.2-1 personal && git push origin ench-v1.14.2-1   # builds ghcr.io/enchlolz/cpa-manager-plus
-bin/personal/deploy-kiwi.sh ench-v1.14.2-1                          # pull on kiwi and recreate the container
-bin/personal/deploy-kiwi.sh --local ench-v1.14.2-1                  # or build here and ship over ssh
+systemctl --user start cpamp-auto-update.service
+systemctl --user disable --now cpamp-auto-update.timer
 ```
 
-The deploy script keeps the `cpa-manager-plus-data` volume and the Tailscale bind.
-Roll back by deploying the previous tag.
+Manual rollback: stop the timer, stop/remove the current manager, rename the
+chosen `cpa-manager-plus-rollback-<timestamp>` container to `cpa-manager-plus`,
+and start it. Each rollback container retains its own original data volume.
+Rolling back data also rolls back usage records collected after that update.
