@@ -53,7 +53,8 @@ export function CredentialRow({
   const pinned = routing?.account.pinned === true;
   const pinEnds = pinned ? formatResetParts(routing?.pinUntilMs ?? null, nowMs, locale) : null;
   // The first account needs no pin, and an exhausted one cannot serve traffic.
-  const canUseFirst = routing !== null && !pinned && routing.rank > 1 && (routing.account.used_percent ?? 0) < 100;
+  const canUseFirst =
+    routing !== null && !pinned && routing.rank > 1 && (routing.account.used_percent ?? 0) < 100;
   const quotaIssue = routing ? describeQuotaIssue(routing.account) : null;
   const slots: Array<{ id: string; window: OverviewWindow | null }> = columns
     ? columns.map((id) => ({ id, window: credential.windows.find((w) => w.id === id) ?? null }))
@@ -80,7 +81,14 @@ export function CredentialRow({
           {credential.disabled && <span className={styles.badgeMuted}>disabled</span>}
           {priority !== null && <span className={styles.badgeMuted}>priority {priority}</span>}
           {pinned && (
-            <span className={styles.badgePinned} title={pinEnds ? `Pinned until this account's weekly reset, ${pinEnds.absolute}` : 'Pinned until you unpin it'}>
+            <span
+              className={styles.badgePinned}
+              title={
+                pinEnds
+                  ? `Pinned until this account's weekly reset, ${pinEnds.absolute}`
+                  : 'Pinned until you unpin it'
+              }
+            >
               pinned{pinEnds ? ` · ends ${pinEnds.relative}` : ''}
             </span>
           )}
@@ -107,18 +115,18 @@ export function CredentialRow({
             window === null ? (
               <div key={id} className={styles.windowEmpty} aria-hidden="true" />
             ) : (
-            <div key={window.id} className={styles.window}>
-              <div className={styles.windowHead}>
-                <span className={styles.windowLabel}>{window.label}</span>
-                <span
-                  className={`${styles.windowValue} ${styles[`text_${toneForRemaining(window.remainingPercent)}`]}`}
-                >
-                  {formatPercentValue(window.remainingPercent)}
-                </span>
+              <div key={window.id} className={styles.window}>
+                <div className={styles.windowHead}>
+                  <span className={styles.windowLabel}>{window.label}</span>
+                  <span
+                    className={`${styles.windowValue} ${styles[`text_${toneForRemaining(window.remainingPercent)}`]}`}
+                  >
+                    {formatPercentValue(window.remainingPercent)}
+                  </span>
+                </div>
+                <UsageBar remainingPercent={window.remainingPercent} stale={window.stale} />
+                <ResetLine resetAtMs={window.resetAtMs} nowMs={nowMs} locale={locale} />
               </div>
-              <UsageBar remainingPercent={window.remainingPercent} stale={window.stale} />
-              <ResetLine resetAtMs={window.resetAtMs} nowMs={nowMs} locale={locale} />
-            </div>
             )
           )
         )}
@@ -162,7 +170,9 @@ export function CredentialRow({
             aria-label={`Refresh quota for ${credential.fileName}`}
           >
             <IconRefreshCw size={14} className={refreshing ? styles.spin : undefined} />
-            <span>{refreshInSeconds > 0 ? `Refresh in ${refreshInSeconds}s` : 'Refresh quota'}</span>
+            <span>
+              {refreshInSeconds > 0 ? `Refresh in ${refreshInSeconds}s` : 'Refresh quota'}
+            </span>
           </button>
         )}
       </div>

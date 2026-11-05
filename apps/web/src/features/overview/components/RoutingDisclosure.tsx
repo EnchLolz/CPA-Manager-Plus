@@ -28,7 +28,9 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
   const [open, setOpen] = useState(false);
   const first = status.order[0];
   const name = (value: string) => (showEmails ? value : maskCredentialName(value));
-  const pinEnds = status.pin?.until_ms ? formatResetParts(status.pin.until_ms, nowMs, locale) : null;
+  const pinEnds = status.pin?.until_ms
+    ? formatResetParts(status.pin.until_ms, nowMs, locale)
+    : null;
   const summary = !status.enabled
     ? 'Routing: static priorities'
     : status.last_error
@@ -50,7 +52,11 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
       >
         <span
           className={`${styles.routingState} ${
-            !status.enabled || status.last_error ? styles.routingOff : status.warning ? styles.routingWarn : styles.routingOn
+            !status.enabled || status.last_error
+              ? styles.routingOff
+              : status.warning
+                ? styles.routingWarn
+                : styles.routingOn
           }`}
         />
         <span className={styles.routingSummary}>{summary}</span>
@@ -67,12 +73,16 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
           {status.enabled ? (
             <ol className={styles.routingOrder}>
               {status.order.map((account, index) => {
-                const reset = account.cycle_end_ms ? formatResetParts(account.cycle_end_ms, nowMs, locale) : null;
+                const reset = account.cycle_end_ms
+                  ? formatResetParts(account.cycle_end_ms, nowMs, locale)
+                  : null;
                 const detail = [
                   account.pinned ? (pinEnds ? `pinned until ${pinEnds.absolute}` : 'pinned') : null,
                   account.tier ? account.tier : null,
                   account.quota_unknown ? 'quota unknown' : null,
-                  typeof account.used_percent === 'number' ? `${Math.round(100 - account.used_percent)}% left` : null,
+                  typeof account.used_percent === 'number'
+                    ? `${Math.round(100 - account.used_percent)}% left`
+                    : null,
                   reset ? `resets ${reset.relative}` : null,
                   `priority ${account.priority}`,
                 ]
@@ -81,16 +91,21 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
                 return (
                   <li key={account.auth_index || account.name} title={account.quota_error}>
                     <span className={styles.rank}>#{index + 1}</span>
-                    <span className={`${styles.mono} ${styles.routingName}`}>{name(account.name)}</span>
+                    <span className={`${styles.mono} ${styles.routingName}`}>
+                      {name(account.name)}
+                    </span>
                     <span className={styles.routingDetail}>{detail}</span>
                   </li>
                 );
               })}
-              {status.order.length === 0 && <li className={styles.routingDetail}>No order applied yet</li>}
+              {status.order.length === 0 && (
+                <li className={styles.routingDetail}>No order applied yet</li>
+              )}
             </ol>
           ) : (
             <div className={styles.routingDetail}>
-              The priority worker is off for this provider. CPA uses the priorities set on each credential.
+              The priority worker is off for this provider. CPA uses the priorities set on each
+              credential.
             </div>
           )}
           <div className={styles.routingFoot}>

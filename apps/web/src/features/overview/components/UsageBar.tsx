@@ -28,10 +28,16 @@ export function SegmentedBar({ segments }: SegmentedBarProps) {
     <div className={styles.segments} aria-hidden="true">
       {segments.map((segment) => {
         const tone = toneForRemaining(segment.remainingPercent);
-        const width = segment.remainingPercent === null ? 0 : Math.max(0, Math.min(100, segment.remainingPercent));
+        const width =
+          segment.remainingPercent === null
+            ? 0
+            : Math.max(0, Math.min(100, segment.remainingPercent));
         return (
           <div key={segment.key} className={styles.track}>
-            <div className={`${styles.fill} ${styles[`tone_${tone}`]}`} style={{ width: `${width}%` }} />
+            <div
+              className={`${styles.fill} ${styles[`tone_${tone}`]}`}
+              style={{ width: `${width}%` }}
+            />
           </div>
         );
       })}

@@ -8,7 +8,12 @@ interface ResetLineProps {
   emptyText?: string;
 }
 
-export function ResetLine({ resetAtMs, nowMs, locale, emptyText = 'No reset pending' }: ResetLineProps) {
+export function ResetLine({
+  resetAtMs,
+  nowMs,
+  locale,
+  emptyText = 'No reset pending',
+}: ResetLineProps) {
   const parts = formatResetParts(resetAtMs, nowMs, locale);
   if (!parts) return <div className={styles.reset}>{emptyText}</div>;
   return (

@@ -14,7 +14,14 @@ interface ProviderSummaryCardProps {
   onSelect: () => void;
 }
 
-export function ProviderSummaryCard({ provider, label, nowMs, locale, active, onSelect }: ProviderSummaryCardProps) {
+export function ProviderSummaryCard({
+  provider,
+  label,
+  nowMs,
+  locale,
+  active,
+  onSelect,
+}: ProviderSummaryCardProps) {
   const enabled = provider.credentials.filter((c) => !c.disabled).length;
   return (
     <button
@@ -46,16 +53,27 @@ export function ProviderSummaryCard({ provider, label, nowMs, locale, active, on
           <div className={styles.summaryWindowLabel}>{provider.headlineLabel}</div>
           <div className={styles.summaryValue}>
             <span
-              className={`${styles.summaryBig} ${styles[`text_${toneForRemaining(
-                provider.remainingPercent === null ? null : provider.remainingPercent / (provider.capacityPercent / 100)
-              )}`]}`}
+              className={`${styles.summaryBig} ${
+                styles[
+                  `text_${toneForRemaining(
+                    provider.remainingPercent === null
+                      ? null
+                      : provider.remainingPercent / (provider.capacityPercent / 100)
+                  )}`
+                ]
+              }`}
             >
               {formatPercentValue(provider.remainingPercent)}
             </span>
             <span className={styles.summaryOf}>of {provider.capacityPercent}% left</span>
           </div>
           <SegmentedBar segments={provider.segments} />
-          <ResetLine resetAtMs={provider.nextResetAtMs} nowMs={nowMs} locale={locale} emptyText="No reset scheduled" />
+          <ResetLine
+            resetAtMs={provider.nextResetAtMs}
+            nowMs={nowMs}
+            locale={locale}
+            emptyText="No reset scheduled"
+          />
         </>
       )}
     </button>

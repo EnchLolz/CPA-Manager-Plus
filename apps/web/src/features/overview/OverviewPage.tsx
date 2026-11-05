@@ -9,7 +9,11 @@ import { IconEye, IconEyeOff, IconRefreshCw, IconSidebarAuthFiles } from '@/comp
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { getProviderLabel } from '@/features/accounts/model/accountsPagePresentation';
 import { canRefreshProvider, useOverviewData } from './hooks/useOverviewData';
-import { buildOverviewProviders, buildRoutingSlots, orderByRoutingRank } from './model/overviewModel';
+import {
+  buildOverviewProviders,
+  buildRoutingSlots,
+  orderByRoutingRank,
+} from './model/overviewModel';
 import { ProviderSummaryCard } from './components/ProviderSummaryCard';
 import { CredentialRow } from './components/CredentialRow';
 import { RoutingDisclosure } from './components/RoutingDisclosure';
@@ -25,7 +29,9 @@ export function OverviewPage() {
   const data = useOverviewData();
   const [filter, setFilter] = useState<string>('all');
   const [showEmails, setShowEmails] = useState(() => localStorage.getItem(SHOW_EMAILS_KEY) === '1');
-  const [showDisabled, setShowDisabled] = useState(() => localStorage.getItem(SHOW_DISABLED_KEY) === '1');
+  const [showDisabled, setShowDisabled] = useState(
+    () => localStorage.getItem(SHOW_DISABLED_KEY) === '1'
+  );
 
   useEffect(() => {
     localStorage.setItem(SHOW_EMAILS_KEY, showEmails ? '1' : '0');
@@ -71,7 +77,8 @@ export function OverviewPage() {
     ],
     [credentials.length, providers, providerLabel]
   );
-  const visibleProviders = filter === 'all' ? providers : providers.filter((p) => p.provider === filter);
+  const visibleProviders =
+    filter === 'all' ? providers : providers.filter((p) => p.provider === filter);
   const withData = credentials.filter((c) => c.windows.length > 0).length;
   const routingSlots = useMemo(() => buildRoutingSlots(data.routing), [data.routing]);
 
@@ -86,20 +93,31 @@ export function OverviewPage() {
             {!showDisabled && disabledCount > 0 && <> · {disabledCount} disabled hidden</>}
             {data.lastLoadedAtMs && (
               <>
-                {' '}· updated{' '}
-                {new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(data.lastLoadedAtMs)}
+                {' '}
+                · updated{' '}
+                {new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(
+                  data.lastLoadedAtMs
+                )}
               </>
             )}
           </div>
         </div>
         <div className={styles.headerActions}>
           {disabledCount > 0 && (
-            <button type="button" className={styles.ghostButton} onClick={() => setShowDisabled((v) => !v)}>
+            <button
+              type="button"
+              className={styles.ghostButton}
+              onClick={() => setShowDisabled((v) => !v)}
+            >
               <IconSidebarAuthFiles size={14} />
               <span>{showDisabled ? 'Hide disabled' : `Show disabled (${disabledCount})`}</span>
             </button>
           )}
-          <button type="button" className={styles.ghostButton} onClick={() => setShowEmails((v) => !v)}>
+          <button
+            type="button"
+            className={styles.ghostButton}
+            onClick={() => setShowEmails((v) => !v)}
+          >
             {showEmails ? <IconEyeOff size={14} /> : <IconEye size={14} />}
             <span>{showEmails ? 'Hide emails' : 'Show emails'}</span>
           </button>
@@ -137,7 +155,9 @@ export function OverviewPage() {
             nowMs={data.nowMs}
             locale={locale}
             active={filter === provider.provider}
-            onSelect={() => setFilter((current) => (current === provider.provider ? 'all' : provider.provider))}
+            onSelect={() =>
+              setFilter((current) => (current === provider.provider ? 'all' : provider.provider))
+            }
           />
         ))}
         {!data.loading && providers.length === 0 && (
@@ -162,22 +182,24 @@ export function OverviewPage() {
             )}
           </div>
           <div className={styles.rows}>
-            {orderByRoutingRank(provider.credentials, routingSlots.get(provider.provider)).map((credential) => (
-              <CredentialRow
-                key={credential.key}
-                credential={credential}
-                columns={provider.windowColumns}
-                nowMs={data.nowMs}
-                locale={locale}
-                showEmails={showEmails}
-                refreshing={data.refreshing.has(credential.key)}
-                canRefresh={!credential.disabled && canRefreshProvider(credential.provider)}
-                routing={routingSlots.get(provider.provider)?.get(credential.fileName) ?? null}
-                pinBusy={data.pinningProvider === provider.provider}
-                onRefresh={() => void data.refreshCredential(credential)}
-                onPin={(authIndex) => void data.pinRouting(provider.provider, authIndex)}
-              />
-            ))}
+            {orderByRoutingRank(provider.credentials, routingSlots.get(provider.provider)).map(
+              (credential) => (
+                <CredentialRow
+                  key={credential.key}
+                  credential={credential}
+                  columns={provider.windowColumns}
+                  nowMs={data.nowMs}
+                  locale={locale}
+                  showEmails={showEmails}
+                  refreshing={data.refreshing.has(credential.key)}
+                  canRefresh={!credential.disabled && canRefreshProvider(credential.provider)}
+                  routing={routingSlots.get(provider.provider)?.get(credential.fileName) ?? null}
+                  pinBusy={data.pinningProvider === provider.provider}
+                  onRefresh={() => void data.refreshCredential(credential)}
+                  onPin={(authIndex) => void data.pinRouting(provider.provider, authIndex)}
+                />
+              )
+            )}
           </div>
         </section>
       ))}

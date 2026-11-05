@@ -41,7 +41,10 @@ export type RoutingStatusByProvider = Record<string, RoutingStatus>;
 
 // Go encodes a nil slice as null, including before a worker has an order.
 type RoutingResponse = {
-  providers?: Record<string, Omit<RoutingStatus, 'order'> & { order?: RoutingAccount[] | null }> | null;
+  providers?: Record<
+    string,
+    Omit<RoutingStatus, 'order'> & { order?: RoutingAccount[] | null }
+  > | null;
 };
 
 const normalizeRouting = (data: RoutingResponse): RoutingStatusByProvider =>
@@ -57,15 +60,22 @@ const demoPins: Record<string, string> = {};
 const applyDemoPin = (status: RoutingStatus, pinned: string | undefined): RoutingStatus => {
   const target = status.order.find((account) => account.auth_index === pinned);
   if (!target) return status;
-  const order = [target, ...status.order.filter((account) => account !== target)].map((account, index, all) => ({
-    ...account,
-    priority: (all.length - index) * 10,
-    pinned: account === target,
-  }));
+  const order = [target, ...status.order.filter((account) => account !== target)].map(
+    (account, index, all) => ({
+      ...account,
+      priority: (all.length - index) * 10,
+      pinned: account === target,
+    })
+  );
   return {
     ...status,
     order,
-    pin: { auth_index: target.auth_index, name: target.name, pinned_at_ms: Date.now(), until_ms: target.cycle_end_ms },
+    pin: {
+      auth_index: target.auth_index,
+      name: target.name,
+      pinned_at_ms: Date.now(),
+      until_ms: target.cycle_end_ms,
+    },
   };
 };
 
@@ -78,9 +88,27 @@ const buildDemoRouting = (): RoutingStatusByProvider => {
       last_poll_at_ms: now - 3 * 60_000,
       last_applied_at_ms: now - 3 * 60_000,
       order: [
-        { name: 'claude-research-02.json', auth_index: '2', priority: 30, cycle_end_ms: now + 2 * 86_400_000, used_percent: 74 },
-        { name: 'claude-extra-usage-03.json', auth_index: '3', priority: 20, cycle_end_ms: now + 3 * 86_400_000, used_percent: 18 },
-        { name: 'claude-team-01.json', auth_index: '1', priority: 10, cycle_end_ms: now + 4 * 86_400_000, used_percent: 31 },
+        {
+          name: 'claude-research-02.json',
+          auth_index: '2',
+          priority: 30,
+          cycle_end_ms: now + 2 * 86_400_000,
+          used_percent: 74,
+        },
+        {
+          name: 'claude-extra-usage-03.json',
+          auth_index: '3',
+          priority: 20,
+          cycle_end_ms: now + 3 * 86_400_000,
+          used_percent: 18,
+        },
+        {
+          name: 'claude-team-01.json',
+          auth_index: '1',
+          priority: 10,
+          cycle_end_ms: now + 4 * 86_400_000,
+          used_percent: 31,
+        },
       ],
     },
     codex: {
@@ -96,7 +124,10 @@ const buildDemoRouting = (): RoutingStatusByProvider => {
     },
   };
   return Object.fromEntries(
-    Object.entries(routing).map(([provider, status]) => [provider, applyDemoPin(status, demoPins[provider])])
+    Object.entries(routing).map(([provider, status]) => [
+      provider,
+      applyDemoPin(status, demoPins[provider]),
+    ])
   );
 };
 
@@ -111,14 +142,11 @@ export const fetchRoutingStatus = async (
 ): Promise<RoutingStatusByProvider> => {
   if (__DEMO_SITE__ && isDemoMode()) return buildDemoRouting();
   const base = managerServiceBase.replace(/\/+$/, '');
-  const response = await axios.get<RoutingResponse>(
-    `${base}/v0/management/routing-priority`,
-    {
-      timeout: 10_000,
-      headers: authHeaders(managementKey),
-      signal,
-    }
-  );
+  const response = await axios.get<RoutingResponse>(`${base}/v0/management/routing-priority`, {
+    timeout: 10_000,
+    headers: authHeaders(managementKey),
+    signal,
+  });
   return normalizeRouting(response.data);
 };
 

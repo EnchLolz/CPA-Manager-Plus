@@ -55,19 +55,28 @@ import {
   type OverviewCredential,
   type OverviewProvider,
 } from '../model/overviewModel';
-import { fetchRoutingStatus, setRoutingPin, type RoutingStatusByProvider } from '../services/routingApi';
+import {
+  fetchRoutingStatus,
+  setRoutingPin,
+  type RoutingStatusByProvider,
+} from '../services/routingApi';
 
 type QuotaStoreState = ReturnType<typeof useQuotaStore.getState>;
 type Refresher = (file: AuthFileItem, t: TFunction) => Promise<void>;
 
 const errorMessage = (error: unknown): string => {
-  const serverMessage = axios.isAxiosError(error) ? (error.response?.data as { error?: unknown } | undefined)?.error : null;
+  const serverMessage = axios.isAxiosError(error)
+    ? (error.response?.data as { error?: unknown } | undefined)?.error
+    : null;
   if (typeof serverMessage === 'string' && serverMessage) return serverMessage;
   return error instanceof Error ? error.message : String(error);
 };
 const makeRefresher = <TState extends CredentialScopedQuotaState, TData>(
   config: QuotaConfig<TState, TData>,
-  select: (state: QuotaStoreState) => { states: Record<string, TState>; setQuota: QuotaSetter<TState> }
+  select: (state: QuotaStoreState) => {
+    states: Record<string, TState>;
+    setQuota: QuotaSetter<TState>;
+  }
 ): Refresher => {
   return async (file, t) => {
     const { states, setQuota } = select(useQuotaStore.getState());
@@ -75,7 +84,11 @@ const makeRefresher = <TState extends CredentialScopedQuotaState, TData>(
     if (overviewQuotaRefreshAtMs(config.type, currentState) > Date.now()) return;
     const { apiBase, managementKey } = useAuthStore.getState();
     await refreshQuotaWithConfig({
-      config, file, setQuota, t, currentState,
+      config,
+      file,
+      setQuota,
+      t,
+      currentState,
       requestScope: { apiBase, managementKey },
       isCurrent: () => {
         const current = useAuthStore.getState();
@@ -86,11 +99,17 @@ const makeRefresher = <TState extends CredentialScopedQuotaState, TData>(
 };
 
 const REFRESHERS: Record<string, Refresher> = {
-  claude: makeRefresher(CLAUDE_CONFIG, (s) => ({ states: s.claudeQuota, setQuota: s.setClaudeQuota })),
+  claude: makeRefresher(CLAUDE_CONFIG, (s) => ({
+    states: s.claudeQuota,
+    setQuota: s.setClaudeQuota,
+  })),
   codex: makeRefresher(CODEX_CONFIG, (s) => ({ states: s.codexQuota, setQuota: s.setCodexQuota })),
   kimi: makeRefresher(KIMI_CONFIG, (s) => ({ states: s.kimiQuota, setQuota: s.setKimiQuota })),
   xai: makeRefresher(XAI_CONFIG, (s) => ({ states: s.xaiQuota, setQuota: s.setXaiQuota })),
-  antigravity: makeRefresher(ANTIGRAVITY_CONFIG, (s) => ({ states: s.antigravityQuota, setQuota: s.setAntigravityQuota })),
+  antigravity: makeRefresher(ANTIGRAVITY_CONFIG, (s) => ({
+    states: s.antigravityQuota,
+    setQuota: s.setAntigravityQuota,
+  })),
 };
 
 export const canRefreshProvider = (provider: string): boolean => provider in REFRESHERS;
@@ -155,7 +174,11 @@ export function useOverviewData(): OverviewData {
       if (!managerBase) return;
       const accounts = buildAccountQuotaSnapshotQueryAccounts(rows);
       if (accounts.length === 0) return;
-      const response = await accountQuotaSnapshotApi.query(managerBase, managementKey ?? undefined, accounts);
+      const response = await accountQuotaSnapshotApi.query(
+        managerBase,
+        managementKey ?? undefined,
+        accounts
+      );
       setSnapshots(new Map(response.items.map((item) => [item.row_key, item.windows])));
     },
     [managerBase, managementKey]
@@ -202,7 +225,9 @@ export function useOverviewData(): OverviewData {
       const results = await Promise.allSettled([loadSnapshots(rows), loadRouting()]);
       if (seq !== requestSeq.current) return;
       const snapshotFailure = results[0].status === 'rejected' ? results[0].reason : null;
-      setError(snapshotFailure ? `Snapshot history unavailable: ${errorMessage(snapshotFailure)}` : null);
+      setError(
+        snapshotFailure ? `Snapshot history unavailable: ${errorMessage(snapshotFailure)}` : null
+      );
       const loadedAt = Date.now();
       setLastLoadedAtMs(loadedAt);
       setNowMs(loadedAt);
@@ -241,7 +266,11 @@ export function useOverviewData(): OverviewData {
   );
 
   const translateQuotaWindowLabel = useCallback(
-    (label: string | undefined, labelKey?: string, labelParams?: Record<string, string | number>) => {
+    (
+      label: string | undefined,
+      labelKey?: string,
+      labelParams?: Record<string, string | number>
+    ) => {
       if (!labelKey) return label || 'Quota';
       return t(labelKey, { defaultValue: label || labelKey, ...labelParams });
     },
@@ -252,17 +281,28 @@ export function useOverviewData(): OverviewData {
 
   const credentials = useMemo(() => {
     return rows.map((row) => {
-      const displayWindows = buildAccountQuotaDisplayWindows(row, { stores, translateQuotaWindowLabel, t, nowMs });
-      const definitions = buildAccountQuotaWindowDefinitions(displayWindows, nowMs);
-      const merged = mergeAccountQuotaSnapshotWindows(definitions, snapshots.get(row.selectionKey) ?? [], {
-        provider: row.provider,
-        getLabel: (snapshot) => labelForSnapshotWindowId(snapshot.provider_window_id),
+      const displayWindows = buildAccountQuotaDisplayWindows(row, {
+        stores,
+        translateQuotaWindowLabel,
+        t,
+        nowMs,
       });
+      const definitions = buildAccountQuotaWindowDefinitions(displayWindows, nowMs);
+      const merged = mergeAccountQuotaSnapshotWindows(
+        definitions,
+        snapshots.get(row.selectionKey) ?? [],
+        {
+          provider: row.provider,
+          getLabel: (snapshot) => labelForSnapshotWindowId(snapshot.provider_window_id),
+        }
+      );
       return {
         ...buildOverviewCredential(row, merged, nowMs),
         refreshAtMs: overviewQuotaRefreshAtMs(
           row.provider,
-          row.provider === 'claude' ? getCredentialScopedQuotaState(stores.claudeQuota, row.raw) : undefined
+          row.provider === 'claude'
+            ? getCredentialScopedQuotaState(stores.claudeQuota, row.raw)
+            : undefined
         ),
       };
     });
@@ -277,7 +317,9 @@ export function useOverviewData(): OverviewData {
         credentials.filter((c) => !c.disabled && canRefreshProvider(c.provider)),
         { getProviderKey: (c) => c.provider, getCredentialKey: (c) => c.key }
       );
-      await runProviderCredentialTaskPlan(tasks, { perProviderConcurrency: 1 }, ({ item }) => refreshCredential(item));
+      await runProviderCredentialTaskPlan(tasks, { perProviderConcurrency: 1 }, ({ item }) =>
+        refreshCredential(item)
+      );
       await reload();
     } finally {
       setRefreshingAll(false);

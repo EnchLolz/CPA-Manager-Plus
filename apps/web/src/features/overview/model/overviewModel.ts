@@ -55,7 +55,16 @@ export interface OverviewProvider {
   windowColumns: string[] | null;
 }
 
-export const PROVIDER_ORDER = ['claude', 'codex', 'antigravity', 'xai', 'kimi', 'gemini', 'devin', 'meta'];
+export const PROVIDER_ORDER = [
+  'claude',
+  'codex',
+  'antigravity',
+  'xai',
+  'kimi',
+  'gemini',
+  'devin',
+  'meta',
+];
 
 export const MAX_WINDOWS_PER_CREDENTIAL = 3;
 
@@ -86,7 +95,10 @@ const isDisplayable = (definition: AccountQuotaWindowDefinition): boolean => {
 };
 
 const resolveRemaining = (definition: AccountQuotaWindowDefinition): number | null => {
-  if (typeof definition.remainingPercent === 'number' && Number.isFinite(definition.remainingPercent)) {
+  if (
+    typeof definition.remainingPercent === 'number' &&
+    Number.isFinite(definition.remainingPercent)
+  ) {
     return clamp(definition.remainingPercent);
   }
   if (typeof definition.usedPercent === 'number' && Number.isFinite(definition.usedPercent)) {
@@ -167,7 +179,11 @@ export const selectDisplayWindows = (
     if (!isDisplayable(definition)) continue;
     const window = toOverviewWindow(definition, nowMs);
     const existing = byId.get(window.id);
-    if (!existing || (existing.stale && !window.stale) || (existing.remainingPercent === null && window.remainingPercent !== null)) {
+    if (
+      !existing ||
+      (existing.stale && !window.stale) ||
+      (existing.remainingPercent === null && window.remainingPercent !== null)
+    ) {
       byId.set(window.id, window);
     }
   }
@@ -192,7 +208,10 @@ export const buildWindowColumns = (credentials: OverviewCredential[]): string[] 
   const columns = orderWindows(Array.from(representatives.values())).map((w) => w.id);
   if (columns.length === 0 || columns.length > MAX_WINDOWS_PER_CREDENTIAL) return null;
   const keepsRowOrder = credentials.every((credential) =>
-    credential.windows.every((window, i) => i === 0 || columns.indexOf(credential.windows[i - 1].id) < columns.indexOf(window.id))
+    credential.windows.every(
+      (window, i) =>
+        i === 0 || columns.indexOf(credential.windows[i - 1].id) < columns.indexOf(window.id)
+    )
   );
   return keepsRowOrder ? columns : null;
 };
@@ -204,7 +223,10 @@ export const selectHeadlineWindow = (windows: OverviewWindow[]): OverviewWindow 
 /** `plan_max` / `PLAN_PRO` / `max` -> `Max`. */
 export const formatPlanType = (planType: string | null): string | null => {
   if (!planType) return null;
-  const cleaned = planType.trim().replace(/^plan[_\s-]*/i, '').replace(/[_-]+/g, ' ');
+  const cleaned = planType
+    .trim()
+    .replace(/^plan[_\s-]*/i, '')
+    .replace(/[_-]+/g, ' ');
   if (!cleaned) return null;
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
 };
@@ -275,7 +297,10 @@ export interface QuotaIssue {
 export const describeQuotaIssue = (account: RoutingAccount): QuotaIssue | null => {
   const last = account.quota_error ? ` Last check: ${account.quota_error}.` : '';
   if (account.quota_error_status === 401) {
-    return { label: 'sign-in expired', title: `The provider rejected this login. Sign in again to use it.${last}` };
+    return {
+      label: 'sign-in expired',
+      title: `The provider rejected this login. Sign in again to use it.${last}`,
+    };
   }
   if (account.quota_unknown) {
     return {
@@ -287,7 +312,9 @@ export const describeQuotaIssue = (account: RoutingAccount): QuotaIssue | null =
 };
 
 /** Routing slots per provider, keyed by credential file name. Off workers have none. */
-export const buildRoutingSlots = (routing: RoutingStatusByProvider): Map<string, Map<string, RoutingSlot>> => {
+export const buildRoutingSlots = (
+  routing: RoutingStatusByProvider
+): Map<string, Map<string, RoutingSlot>> => {
   const byProvider = new Map<string, Map<string, RoutingSlot>>();
   for (const [provider, status] of Object.entries(routing)) {
     if (!status.enabled) continue;
@@ -375,7 +402,9 @@ export const buildOverviewProviders = (credentials: OverviewCredential[]): Overv
     const index = PROVIDER_ORDER.indexOf(p);
     return index === -1 ? PROVIDER_ORDER.length : index;
   };
-  return providers.sort((a, b) => order(a.provider) - order(b.provider) || a.provider.localeCompare(b.provider));
+  return providers.sort(
+    (a, b) => order(a.provider) - order(b.provider) || a.provider.localeCompare(b.provider)
+  );
 };
 
 export const toneForRemaining = (remainingPercent: number | null): OverviewTone => {
@@ -387,10 +416,15 @@ export const toneForRemaining = (remainingPercent: number | null): OverviewTone 
 
 /** `claude-team@example.dev.json` -> `claude-t•••@e•••.dev.json`. */
 export const maskCredentialName = (name: string): string =>
-  name.replace(/([^@\s/]+)@([^.\s/]+)((?:\.[^.\s/]+)*)/g, (_m, local: string, domain: string, rest: string) => {
-    const localPrefix = local.includes('-') ? local.slice(0, local.indexOf('-') + 2) : local.slice(0, 1);
-    return `${localPrefix}•••@${domain.slice(0, 1)}•••${rest}`;
-  });
+  name.replace(
+    /([^@\s/]+)@([^.\s/]+)((?:\.[^.\s/]+)*)/g,
+    (_m, local: string, domain: string, rest: string) => {
+      const localPrefix = local.includes('-')
+        ? local.slice(0, local.indexOf('-') + 2)
+        : local.slice(0, 1);
+      return `${localPrefix}•••@${domain.slice(0, 1)}•••${rest}`;
+    }
+  );
 
 export interface ResetParts {
   relative: string;

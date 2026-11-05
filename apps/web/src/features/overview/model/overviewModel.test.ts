@@ -79,7 +79,16 @@ const row = (overrides: Partial<AccountRow> & { selectionKey: string }): Account
     subscriptionUntilMs: null,
     authenticationAtMs: 0,
     rawCredentialStatusSuperseded: false,
-    quota: { status: 'unknown', remainingPercent: null, usedPercent: null, resetLabel: '-', resetAtMs: null, resetAccuracy: 'unknown', planType: null, source: 'none' },
+    quota: {
+      status: 'unknown',
+      remainingPercent: null,
+      usedPercent: null,
+      resetLabel: '-',
+      resetAtMs: null,
+      resetAccuracy: 'unknown',
+      planType: null,
+      source: 'none',
+    },
     usage: {} as AccountRow['usage'],
     inspection: null,
     raw: { name: `${overrides.selectionKey}.json` },
@@ -91,7 +100,13 @@ describe('selectDisplayWindows', () => {
     const windows = selectDisplayWindows(
       [
         definition({ providerWindowId: 'seven-day', label: '7-day limit', usedPercent: 25 }),
-        definition({ providerWindowId: 'five-hour', label: '5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 0 }),
+        definition({
+          providerWindowId: 'five-hour',
+          label: '5-hour limit',
+          kind: 'five_hour',
+          durationSeconds: 18_000,
+          usedPercent: 0,
+        }),
         definition({ providerWindowId: 'seven-day-opus', label: '7-day Opus', usedPercent: 42 }),
       ],
       NOW
@@ -104,9 +119,21 @@ describe('selectDisplayWindows', () => {
   it('keeps a model weekly window ahead of a billing window when slots run out', () => {
     const windows = selectDisplayWindows(
       [
-        definition({ providerWindowId: 'extra-usage', label: 'Extra Usage', kind: 'billing', durationSeconds: null, usedPercent: 91 }),
+        definition({
+          providerWindowId: 'extra-usage',
+          label: 'Extra Usage',
+          kind: 'billing',
+          durationSeconds: null,
+          usedPercent: 91,
+        }),
         definition({ providerWindowId: 'seven-day', label: '7-day limit', usedPercent: 25 }),
-        definition({ providerWindowId: 'five-hour', label: '5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 0 }),
+        definition({
+          providerWindowId: 'five-hour',
+          label: '5-hour limit',
+          kind: 'five_hour',
+          durationSeconds: 18_000,
+          usedPercent: 0,
+        }),
         definition({ providerWindowId: 'seven-day-opus', label: '7-day Opus', usedPercent: 42 }),
       ],
       NOW
@@ -117,8 +144,21 @@ describe('selectDisplayWindows', () => {
   it('leads with the weekly limit for codex even when a model-scoped 5-hour window exists', () => {
     const windows = selectDisplayWindows(
       [
-        definition({ providerWindowId: 'codex-review-5h', label: 'Code review 5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 40, modelScope: { kind: 'feature', key: 'code-review', complete: true } }),
-        definition({ providerWindowId: 'primary', label: '5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 60 }),
+        definition({
+          providerWindowId: 'codex-review-5h',
+          label: 'Code review 5-hour limit',
+          kind: 'five_hour',
+          durationSeconds: 18_000,
+          usedPercent: 40,
+          modelScope: { kind: 'feature', key: 'code-review', complete: true },
+        }),
+        definition({
+          providerWindowId: 'primary',
+          label: '5-hour limit',
+          kind: 'five_hour',
+          durationSeconds: 18_000,
+          usedPercent: 60,
+        }),
         definition({ providerWindowId: 'secondary', label: 'Weekly limit', usedPercent: 30 }),
       ],
       NOW
@@ -153,7 +193,11 @@ describe('selectDisplayWindows', () => {
         },
       });
     const windows = selectDisplayWindows(
-      [grouped('g1-5h', 18_000, 'Gemini models'), grouped('g2-5h', 18_000, 'Claude and GPT models'), grouped('g1-week', 604_800, 'Gemini models')],
+      [
+        grouped('g1-5h', 18_000, 'Gemini models'),
+        grouped('g2-5h', 18_000, 'Claude and GPT models'),
+        grouped('g1-week', 604_800, 'Gemini models'),
+      ],
       NOW
     );
     expect(windows[0].id).toBe('g1-week');
@@ -192,7 +236,13 @@ describe('sortCredentials / buildOverviewProviders', () => {
       row({ selectionKey: key, disabled }),
       resetInDays === null
         ? []
-        : [definition({ providerWindowId: 'seven-day', usedPercent: used, cycleEndMs: NOW + resetInDays * DAY })],
+        : [
+            definition({
+              providerWindowId: 'seven-day',
+              usedPercent: used,
+              cycleEndMs: NOW + resetInDays * DAY,
+            }),
+          ],
       NOW
     );
 
@@ -208,7 +258,11 @@ describe('sortCredentials / buildOverviewProviders', () => {
   });
 
   it('aggregates remaining percent against the enabled capacity', () => {
-    const [claude] = buildOverviewProviders([make('a', 40, 1), make('b', 10, 3), make('off', 0, 1, true)]);
+    const [claude] = buildOverviewProviders([
+      make('a', 40, 1),
+      make('b', 10, 3),
+      make('off', 0, 1, true),
+    ]);
     expect(claude.provider).toBe('claude');
     expect(claude.remainingPercent).toBe(150);
     expect(claude.capacityPercent).toBe(200);
@@ -226,9 +280,22 @@ describe('sortCredentials / buildOverviewProviders', () => {
         modelScope: { kind: 'models', models: ['claude-fable-5-1'], complete: true },
       });
     const weekly = (used: number, resetInDays: number) =>
-      definition({ providerWindowId: 'seven-day', label: '7-day limit', usedPercent: used, cycleEndMs: NOW + resetInDays * DAY });
-    const exhausted = buildOverviewCredential(row({ selectionKey: 'exhausted' }), [fable(20, 1), weekly(100, 1)], NOW);
-    const open = buildOverviewCredential(row({ selectionKey: 'open' }), [fable(2, 5), weekly(85, 5)], NOW);
+      definition({
+        providerWindowId: 'seven-day',
+        label: '7-day limit',
+        usedPercent: used,
+        cycleEndMs: NOW + resetInDays * DAY,
+      });
+    const exhausted = buildOverviewCredential(
+      row({ selectionKey: 'exhausted' }),
+      [fable(20, 1), weekly(100, 1)],
+      NOW
+    );
+    const open = buildOverviewCredential(
+      row({ selectionKey: 'open' }),
+      [fable(2, 5), weekly(85, 5)],
+      NOW
+    );
 
     const [claude] = buildOverviewProviders([exhausted, open]);
     expect(claude.headlineLabel).toBe('7-day limit');
@@ -239,8 +306,18 @@ describe('sortCredentials / buildOverviewProviders', () => {
 });
 
 describe('buildWindowColumns', () => {
-  const weekly = definition({ providerWindowId: 'seven-day', label: '7-day limit', usedPercent: 30 });
-  const fiveHour = definition({ providerWindowId: 'five-hour', label: '5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 0 });
+  const weekly = definition({
+    providerWindowId: 'seven-day',
+    label: '7-day limit',
+    usedPercent: 30,
+  });
+  const fiveHour = definition({
+    providerWindowId: 'five-hour',
+    label: '5-hour limit',
+    kind: 'five_hour',
+    durationSeconds: 18_000,
+    usedPercent: 0,
+  });
   const fable = definition({
     providerWindowId: 'weekly-scoped-fable',
     label: 'Fable',
@@ -260,13 +337,27 @@ describe('buildWindowColumns', () => {
   });
 
   it('lets rows lay out their own windows when they need more than one row of columns', () => {
-    const opus = definition({ providerWindowId: 'seven-day-opus', label: '7-day Opus', usedPercent: 10 });
-    expect(buildWindowColumns([credential('a', [weekly, fiveHour, fable]), credential('b', [weekly, opus])])).toBeNull();
+    const opus = definition({
+      providerWindowId: 'seven-day-opus',
+      label: '7-day Opus',
+      usedPercent: 10,
+    });
+    expect(
+      buildWindowColumns([
+        credential('a', [weekly, fiveHour, fable]),
+        credential('b', [weekly, opus]),
+      ])
+    ).toBeNull();
   });
 
   it('never reorders a row to share columns', () => {
     // A monthly limit leads this row, but would land after the weekly column.
-    const monthly = definition({ providerWindowId: 'monthly', label: 'Monthly limit', durationSeconds: 30 * 86_400, usedPercent: 5 });
+    const monthly = definition({
+      providerWindowId: 'monthly',
+      label: 'Monthly limit',
+      durationSeconds: 30 * 86_400,
+      usedPercent: 5,
+    });
     const weeklyOnly = credential('weekly', [weekly]);
     const monthlyFirst = credential('monthly', [monthly, weekly]);
     expect(monthlyFirst.windows.map((w) => w.id)).toEqual(['monthly', 'seven-day']);
@@ -278,17 +369,32 @@ describe('buildWindowColumns', () => {
 });
 
 describe('describeQuotaIssue', () => {
-  const account = (overrides: Partial<RoutingAccount>): RoutingAccount => ({ name: 'a.json', auth_index: 'a', priority: 10, ...overrides });
+  const account = (overrides: Partial<RoutingAccount>): RoutingAccount => ({
+    name: 'a.json',
+    auth_index: 'a',
+    priority: 10,
+    ...overrides,
+  });
 
   it('asks for a new sign-in when the provider rejected the login', () => {
-    const issue = describeQuotaIssue(account({ quota_unknown: true, quota_error: 'provider HTTP 401; quota refresh deferred', quota_error_status: 401 }));
+    const issue = describeQuotaIssue(
+      account({
+        quota_unknown: true,
+        quota_error: 'provider HTTP 401; quota refresh deferred',
+        quota_error_status: 401,
+      })
+    );
     expect(issue?.label).toBe('sign-in expired');
     expect(issue?.title).toContain('provider HTTP 401');
   });
 
   it('flags an unknown quota but not a rate-limited read with a current quota', () => {
     expect(describeQuotaIssue(account({ quota_unknown: true }))?.label).toBe('quota unknown');
-    expect(describeQuotaIssue(account({ quota_error: 'provider HTTP 429', quota_error_status: 429, used_percent: 10 }))).toBeNull();
+    expect(
+      describeQuotaIssue(
+        account({ quota_error: 'provider HTTP 429', quota_error_status: 429, used_percent: 10 })
+      )
+    ).toBeNull();
     expect(describeQuotaIssue(account({}))).toBeNull();
   });
 });
@@ -296,7 +402,9 @@ describe('describeQuotaIssue', () => {
 describe('formatting helpers', () => {
   it('masks the account part of a credential file name', () => {
     expect(maskCredentialName('claude-team@example.dev.json')).toBe('claude-t•••@e•••.dev.json');
-    expect(maskCredentialName('codex-5552f23c-nathan@gmail.com-pro.json')).toBe('codex-5•••@g•••.com-pro.json');
+    expect(maskCredentialName('codex-5552f23c-nathan@gmail.com-pro.json')).toBe(
+      'codex-5•••@g•••.com-pro.json'
+    );
     expect(maskCredentialName('kimi-1784357897531.json')).toBe('kimi-1784357897531.json');
   });
 
@@ -308,11 +416,25 @@ describe('formatting helpers', () => {
   });
 
   it('names the provider card by consensus, not by one credential', () => {
-    const w = (label: string, durationSeconds: number | null) =>
-      ({ id: label, label, remainingPercent: 50, resetAtMs: null, durationSeconds, modelScoped: false, billing: false, stale: false });
-    expect(resolveHeadlineLabel([w('7-day Opus', 604_800), w('7-day Opus', 604_800)])).toBe('7-day Opus');
-    expect(resolveHeadlineLabel([w('7-day Opus', 604_800), w('7-day limit', 604_800)])).toBe('7-day limit');
-    expect(resolveHeadlineLabel([w('Weekly', 604_800), w('Monthly', 2_592_000)])).toBe('Longest limit');
+    const w = (label: string, durationSeconds: number | null) => ({
+      id: label,
+      label,
+      remainingPercent: 50,
+      resetAtMs: null,
+      durationSeconds,
+      modelScoped: false,
+      billing: false,
+      stale: false,
+    });
+    expect(resolveHeadlineLabel([w('7-day Opus', 604_800), w('7-day Opus', 604_800)])).toBe(
+      '7-day Opus'
+    );
+    expect(resolveHeadlineLabel([w('7-day Opus', 604_800), w('7-day limit', 604_800)])).toBe(
+      '7-day limit'
+    );
+    expect(resolveHeadlineLabel([w('Weekly', 604_800), w('Monthly', 2_592_000)])).toBe(
+      'Longest limit'
+    );
     expect(resolveHeadlineLabel([])).toBe('Quota');
   });
 
@@ -338,10 +460,23 @@ describe('formatting helpers', () => {
 });
 
 describe('buildRoutingSlots / orderByRoutingRank', () => {
-  const account = (name: string, priority: number, pinned = false) => ({ name: `${name}.json`, auth_index: name, priority, pinned });
-  const status = { strategy: 'earliest weekly reset first', last_poll_at_ms: NOW, last_applied_at_ms: NOW };
+  const account = (name: string, priority: number, pinned = false) => ({
+    name: `${name}.json`,
+    auth_index: name,
+    priority,
+    pinned,
+  });
+  const status = {
+    strategy: 'earliest weekly reset first',
+    last_poll_at_ms: NOW,
+    last_applied_at_ms: NOW,
+  };
   const credential = (key: string, disabled = false) =>
-    buildOverviewCredential(row({ selectionKey: key, disabled }), [definition({ providerWindowId: 'seven-day', usedPercent: 0 })], NOW);
+    buildOverviewCredential(
+      row({ selectionKey: key, disabled }),
+      [definition({ providerWindowId: 'seven-day', usedPercent: 0 })],
+      NOW
+    );
 
   it('ranks only providers whose priority worker is on and carries the pin end', () => {
     const slots = buildRoutingSlots({
@@ -349,20 +484,36 @@ describe('buildRoutingSlots / orderByRoutingRank', () => {
         ...status,
         enabled: true,
         order: [account('nine-hour', 20, true), account('seven-hour', 10)],
-        pin: { auth_index: 'nine-hour', name: 'nine-hour.json', pinned_at_ms: NOW, until_ms: NOW + 9 * HOUR },
+        pin: {
+          auth_index: 'nine-hour',
+          name: 'nine-hour.json',
+          pinned_at_ms: NOW,
+          until_ms: NOW + 9 * HOUR,
+        },
       },
       codex: { ...status, enabled: false, order: [account('plus', 10)] },
     });
     expect(slots.has('codex')).toBe(false);
-    expect(slots.get('claude')?.get('nine-hour.json')).toMatchObject({ rank: 1, pinUntilMs: NOW + 9 * HOUR, account: { pinned: true } });
+    expect(slots.get('claude')?.get('nine-hour.json')).toMatchObject({
+      rank: 1,
+      pinUntilMs: NOW + 9 * HOUR,
+      account: { pinned: true },
+    });
     expect(slots.get('claude')?.get('seven-hour.json')?.rank).toBe(2);
   });
 
   it('lists credentials in routing order so a pinned account moves to the top', () => {
     const slots = buildRoutingSlots({
-      claude: { ...status, enabled: true, order: [account('nine-hour', 20, true), account('seven-hour', 10)] },
+      claude: {
+        ...status,
+        enabled: true,
+        order: [account('nine-hour', 20, true), account('seven-hour', 10)],
+      },
     }).get('claude');
-    const ordered = orderByRoutingRank([credential('seven-hour'), credential('off', true), credential('nine-hour')], slots);
+    const ordered = orderByRoutingRank(
+      [credential('seven-hour'), credential('off', true), credential('nine-hour')],
+      slots
+    );
     expect(ordered.map((c) => c.key)).toEqual(['nine-hour', 'seven-hour', 'off']);
     const unrouted = [credential('b'), credential('a')];
     expect(orderByRoutingRank(unrouted, undefined)).toBe(unrouted);
