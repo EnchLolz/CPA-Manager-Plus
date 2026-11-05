@@ -2,6 +2,8 @@ package worker
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,15 +13,55 @@ import (
 	"time"
 )
 
+// claudeQuotaRetry is a credential's latest quota failure. Until is set when the
+// next attempt must wait; Error and Status stay visible in the routing status
+// until an observation succeeds.
 type claudeQuotaRetry struct {
 	Until    time.Time `json:"until"`
 	Failures int       `json:"failures"`
+	Error    string    `json:"error,omitempty"`
+	Status   int       `json:"status,omitempty"`
 }
 
-type claudeQuotaRateLimitError struct{ Until time.Time }
+// claudeQuotaDeferredError is a failure that retrying soon cannot fix: a rate
+// limit (429) or a rejected sign-in (401/403). Repeated rejected sign-ins also
+// draw 429s from the usage endpoint, so both back off the same way.
+type claudeQuotaDeferredError struct {
+	Status int
+	Until  time.Time
+}
 
-func (e *claudeQuotaRateLimitError) Error() string {
-	return "provider HTTP 429; quota refresh deferred until " + e.Until.UTC().Format(time.RFC3339)
+func (e *claudeQuotaDeferredError) Error() string {
+	return fmt.Sprintf("provider HTTP %d; quota refresh deferred until %s", e.Status, e.Until.UTC().Format(time.RFC3339))
+}
+
+// claudeQuotaStatusError is any other HTTP failure, retried on the next poll.
+type claudeQuotaStatusError struct {
+	Status int
+	Source string
+}
+
+func (e *claudeQuotaStatusError) Error() string {
+	return fmt.Sprintf("%s HTTP %d", e.Source, e.Status)
+}
+
+// recordQuotaFailure keeps the failure for the routing status and defers the
+// next attempt when the provider asked for it or rejected the credential.
+func (w *ClaudeQuotaWorker) recordQuotaFailure(index string, err error) {
+	var deferred *claudeQuotaDeferredError
+	var failed *claudeQuotaStatusError
+	retry := claudeQuotaRetry{Failures: w.retries[index].Failures}
+	switch {
+	case errors.As(err, &deferred):
+		// The message names the final deadline, so it is read after deferring.
+		deferred.Until = w.deferAccount(index, deferred.Until)
+		retry = w.retries[index]
+		retry.Status = deferred.Status
+	case errors.As(err, &failed):
+		retry.Status = failed.Status
+	}
+	retry.Error = err.Error()
+	w.retries[index] = retry
 }
 
 func claudeQuotaRetryHeader(headers map[string]json.RawMessage) string {

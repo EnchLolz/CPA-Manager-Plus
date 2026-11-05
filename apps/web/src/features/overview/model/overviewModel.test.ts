@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountRow } from '@/features/accounts/model/accountRows';
 import type { AccountQuotaWindowDefinition } from '@/features/accounts/model/accountQuotaWindowDefinitions';
+import type { RoutingAccount } from '../services/routingApi';
 import {
   buildOverviewCredential,
   buildOverviewProviders,
   buildRoutingSlots,
+  buildWindowColumns,
+  describeQuotaIssue,
   formatPlanType,
   formatResetParts,
   labelForSnapshotWindowId,
@@ -235,6 +238,61 @@ describe('sortCredentials / buildOverviewProviders', () => {
   });
 });
 
+describe('buildWindowColumns', () => {
+  const weekly = definition({ providerWindowId: 'seven-day', label: '7-day limit', usedPercent: 30 });
+  const fiveHour = definition({ providerWindowId: 'five-hour', label: '5-hour limit', kind: 'five_hour', durationSeconds: 18_000, usedPercent: 0 });
+  const fable = definition({
+    providerWindowId: 'weekly-scoped-fable',
+    label: 'Fable',
+    usedPercent: 0,
+    modelScope: { kind: 'models', models: ['claude-fable-5-1'], complete: true },
+  });
+  const credential = (key: string, definitions: AccountQuotaWindowDefinition[]) =>
+    buildOverviewCredential(row({ selectionKey: key }), definitions, NOW);
+
+  it('keeps a Max row without a five-hour limit aligned with Team rows', () => {
+    const max = credential('max', [weekly, fable]);
+    const team = credential('team', [weekly, fiveHour, fable]);
+    const columns = buildWindowColumns([max, team]);
+    expect(columns).toEqual(['seven-day', 'five-hour', 'weekly-scoped-fable']);
+    const [claude] = buildOverviewProviders([max, team]);
+    expect(claude.windowColumns).toEqual(columns);
+  });
+
+  it('lets rows lay out their own windows when they need more than one row of columns', () => {
+    const opus = definition({ providerWindowId: 'seven-day-opus', label: '7-day Opus', usedPercent: 10 });
+    expect(buildWindowColumns([credential('a', [weekly, fiveHour, fable]), credential('b', [weekly, opus])])).toBeNull();
+  });
+
+  it('never reorders a row to share columns', () => {
+    // A monthly limit leads this row, but would land after the weekly column.
+    const monthly = definition({ providerWindowId: 'monthly', label: 'Monthly limit', durationSeconds: 30 * 86_400, usedPercent: 5 });
+    const weeklyOnly = credential('weekly', [weekly]);
+    const monthlyFirst = credential('monthly', [monthly, weekly]);
+    expect(monthlyFirst.windows.map((w) => w.id)).toEqual(['monthly', 'seven-day']);
+    expect(buildWindowColumns([weeklyOnly, monthlyFirst])).toEqual(['monthly', 'seven-day']);
+    const reversed = credential('reversed', [weekly, fiveHour]);
+    const fiveHourOnly = credential('short', [fiveHour]);
+    expect(buildWindowColumns([reversed, fiveHourOnly])).toEqual(['seven-day', 'five-hour']);
+  });
+});
+
+describe('describeQuotaIssue', () => {
+  const account = (overrides: Partial<RoutingAccount>): RoutingAccount => ({ name: 'a.json', auth_index: 'a', priority: 10, ...overrides });
+
+  it('asks for a new sign-in when the provider rejected the login', () => {
+    const issue = describeQuotaIssue(account({ quota_unknown: true, quota_error: 'provider HTTP 401; quota refresh deferred', quota_error_status: 401 }));
+    expect(issue?.label).toBe('sign-in expired');
+    expect(issue?.title).toContain('provider HTTP 401');
+  });
+
+  it('flags an unknown quota but not a rate-limited read with a current quota', () => {
+    expect(describeQuotaIssue(account({ quota_unknown: true }))?.label).toBe('quota unknown');
+    expect(describeQuotaIssue(account({ quota_error: 'provider HTTP 429', quota_error_status: 429, used_percent: 10 }))).toBeNull();
+    expect(describeQuotaIssue(account({}))).toBeNull();
+  });
+});
+
 describe('formatting helpers', () => {
   it('masks the account part of a credential file name', () => {
     expect(maskCredentialName('claude-team@example.dev.json')).toBe('claude-t•••@e•••.dev.json');
@@ -251,7 +309,7 @@ describe('formatting helpers', () => {
 
   it('names the provider card by consensus, not by one credential', () => {
     const w = (label: string, durationSeconds: number | null) =>
-      ({ id: label, label, remainingPercent: 50, resetAtMs: null, durationSeconds, modelScoped: false, stale: false });
+      ({ id: label, label, remainingPercent: 50, resetAtMs: null, durationSeconds, modelScoped: false, billing: false, stale: false });
     expect(resolveHeadlineLabel([w('7-day Opus', 604_800), w('7-day Opus', 604_800)])).toBe('7-day Opus');
     expect(resolveHeadlineLabel([w('7-day Opus', 604_800), w('7-day limit', 604_800)])).toBe('7-day limit');
     expect(resolveHeadlineLabel([w('Weekly', 604_800), w('Monthly', 2_592_000)])).toBe('Longest limit');

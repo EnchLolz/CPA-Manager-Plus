@@ -19,6 +19,7 @@ export interface OverviewWindow {
   resetAtMs: number | null;
   durationSeconds: number | null;
   modelScoped: boolean;
+  billing: boolean;
   stale: boolean;
 }
 
@@ -50,6 +51,8 @@ export interface OverviewProvider {
   capacityPercent: number;
   nextResetAtMs: number | null;
   segments: OverviewSegment[];
+  /** Window ids shared by every row's columns, or null when rows lay out their own. */
+  windowColumns: string[] | null;
 }
 
 export const PROVIDER_ORDER = ['claude', 'codex', 'antigravity', 'xai', 'kimi', 'gemini', 'devin', 'meta'];
@@ -117,6 +120,7 @@ const toOverviewWindow = (
   resetAtMs: resolveResetAt(definition, nowMs),
   durationSeconds: definition.durationSeconds ?? definition.display.limitWindowSeconds ?? null,
   modelScoped: isModelWindow(definition),
+  billing: definition.kind === 'billing',
   stale: definition.stale,
 });
 
@@ -136,35 +140,61 @@ const byHeadlinePreference = (a: OverviewWindow, b: OverviewWindow) => {
 };
 
 /**
- * Pick the windows worth showing on one row: the headline window first (the
- * longest limit, which is what actually gates sustained use), then the other
- * account-wide windows shortest to longest, then remaining model-scoped
- * windows, then billing windows. Duplicated ids collapse to the freshest entry.
+ * Display order: the headline window first (the longest limit, which is what
+ * actually gates sustained use), then the other account-wide windows shortest
+ * to longest, then model-scoped windows, then billing windows.
+ */
+const orderWindows = (windows: OverviewWindow[]): OverviewWindow[] => {
+  const headline = selectHeadlineWindow(windows);
+  if (!headline) return [];
+  const rest = windows.filter((w) => w !== headline);
+  const limits = rest.filter((w) => !w.billing);
+  const standard = limits.filter((w) => !w.modelScoped).sort(byDuration);
+  const model = limits.filter((w) => w.modelScoped).sort(byDurationDesc);
+  return [headline, ...standard, ...model, ...rest.filter((w) => w.billing)];
+};
+
+/**
+ * Pick the windows worth showing on one row, in display order. Duplicated ids
+ * collapse to the freshest entry.
  */
 export const selectDisplayWindows = (
   definitions: AccountQuotaWindowDefinition[],
   nowMs = Date.now()
 ): OverviewWindow[] => {
   const byId = new Map<string, OverviewWindow>();
-  const billingIds = new Set<string>();
   for (const definition of definitions) {
     if (!isDisplayable(definition)) continue;
     const window = toOverviewWindow(definition, nowMs);
-    if (definition.kind === 'billing') billingIds.add(window.id);
     const existing = byId.get(window.id);
     if (!existing || (existing.stale && !window.stale) || (existing.remainingPercent === null && window.remainingPercent !== null)) {
       byId.set(window.id, window);
     }
   }
-  const windows = Array.from(byId.values());
-  const headline = selectHeadlineWindow(windows);
-  if (!headline) return [];
-  const rest = windows.filter((w) => w !== headline);
-  const billing = rest.filter((w) => billingIds.has(w.id));
-  const limits = rest.filter((w) => !billingIds.has(w.id));
-  const standard = limits.filter((w) => !w.modelScoped).sort(byDuration);
-  const model = limits.filter((w) => w.modelScoped).sort(byDurationDesc);
-  return [headline, ...standard, ...model, ...billing].slice(0, MAX_WINDOWS_PER_CREDENTIAL);
+  return orderWindows(Array.from(byId.values())).slice(0, MAX_WINDOWS_PER_CREDENTIAL);
+};
+
+/**
+ * Columns shared by one provider's rows, so a window an account lacks leaves
+ * its column empty instead of shifting the rest. Anthropic no longer reports a
+ * five-hour limit for Max plans while Team plans keep one, so without this a
+ * Max row's model window would sit under Team rows' five-hour window. Null
+ * when the windows need more columns than a row has, or when sharing columns
+ * would reorder some row's own windows; rows then lay out their own.
+ */
+export const buildWindowColumns = (credentials: OverviewCredential[]): string[] | null => {
+  const representatives = new Map<string, OverviewWindow>();
+  for (const credential of credentials) {
+    for (const window of credential.windows) {
+      if (!representatives.has(window.id)) representatives.set(window.id, window);
+    }
+  }
+  const columns = orderWindows(Array.from(representatives.values())).map((w) => w.id);
+  if (columns.length === 0 || columns.length > MAX_WINDOWS_PER_CREDENTIAL) return null;
+  const keepsRowOrder = credentials.every((credential) =>
+    credential.windows.every((window, i) => i === 0 || columns.indexOf(credential.windows[i - 1].id) < columns.indexOf(window.id))
+  );
+  return keepsRowOrder ? columns : null;
 };
 
 /** The window that best represents "how much of this subscription is left". */
@@ -231,6 +261,30 @@ export interface RoutingSlot {
   strategy: string;
   pinUntilMs: number | null;
 }
+
+export interface QuotaIssue {
+  label: string;
+  title: string;
+}
+
+/**
+ * Why the routing worker cannot read an account's quota, when that matters: a
+ * rejected login needs a new sign-in, and an unknown quota changes the rank.
+ * A rate-limited read while the last observation is still current does not.
+ */
+export const describeQuotaIssue = (account: RoutingAccount): QuotaIssue | null => {
+  const last = account.quota_error ? ` Last check: ${account.quota_error}.` : '';
+  if (account.quota_error_status === 401) {
+    return { label: 'sign-in expired', title: `The provider rejected this login. Sign in again to use it.${last}` };
+  }
+  if (account.quota_unknown) {
+    return {
+      label: 'quota unknown',
+      title: `No current weekly quota, so routing ranks this account after accounts with quota left.${last}`,
+    };
+  }
+  return null;
+};
 
 /** Routing slots per provider, keyed by credential file name. Off workers have none. */
 export const buildRoutingSlots = (routing: RoutingStatusByProvider): Map<string, Map<string, RoutingSlot>> => {
@@ -314,6 +368,7 @@ export const buildOverviewProviders = (credentials: OverviewCredential[]): Overv
       segments: sorted
         .filter((c) => !c.disabled)
         .map((c) => ({ key: c.key, remainingPercent: c.headline?.remainingPercent ?? null })),
+      windowColumns: buildWindowColumns(sorted),
     };
   });
   const order = (p: string) => {

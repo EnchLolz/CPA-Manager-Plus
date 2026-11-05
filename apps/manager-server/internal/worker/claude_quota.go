@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -33,17 +32,22 @@ type ClaudeQuotaWorker struct {
 	writer        claudeQuotaWriter
 	client        *http.Client
 	resetPriority bool
-	weekly        map[string]quotasvc.WindowInput
-	retries       map[string]claudeQuotaRetry
-	retryPath     string
-	now           func() time.Time
-	pin           *RoutingPin
-	pinPath       string
-	pins          chan routingPinRequest
+	// weekly holds each credential's latest successful account-wide weekly
+	// window. It outlives failed polls so one unreadable account cannot stop
+	// routing; the planner decides how old an observation may be.
+	weekly    map[string]quotasvc.WindowInput
+	retries   map[string]claudeQuotaRetry
+	retryPath string
+	now       func() time.Time
+	pin       *RoutingPin
+	pinPath   string
+	pins      chan routingPinRequest
+	// lastWarning keeps a persistent ranking warning to one log line.
+	lastWarning string
 }
 
 func NewClaudeQuotaWorker(config claudeQuotaConfig, writer claudeQuotaWriter) *ClaudeQuotaWorker {
-	w := &ClaudeQuotaWorker{config: config, writer: writer, client: &http.Client{Timeout: 30 * time.Second}, resetPriority: os.Getenv("CLAUDE_RESET_PRIORITY") == "true", now: time.Now}
+	w := &ClaudeQuotaWorker{config: config, writer: writer, client: &http.Client{Timeout: 30 * time.Second}, resetPriority: os.Getenv("CLAUDE_RESET_PRIORITY") == "true", weekly: map[string]quotasvc.WindowInput{}, now: time.Now}
 	w.loadRetries(os.Getenv("USAGE_DATA_DIR"))
 	w.pinPath = routingPinPath(os.Getenv("USAGE_DATA_DIR"), "claude")
 	w.pin = loadRoutingPin(w.pinPath)
@@ -78,7 +82,7 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("account inventory unavailable")
 	}
-	w.weekly = make(map[string]quotasvc.WindowInput)
+	w.pruneWeekly(files)
 	defer w.saveRetries()
 	for _, file := range files {
 		if ctx.Err() != nil {
@@ -93,10 +97,7 @@ func (w *ClaudeQuotaWorker) poll(ctx context.Context) error {
 		// Disabled accounts may still consume quota outside the proxy and are useful
 		// comparison baselines, so include them without enabling them.
 		if err := w.pollAccount(ctx, setup, file); err != nil && ctx.Err() == nil {
-			var limited *claudeQuotaRateLimitError
-			if errors.As(err, &limited) {
-				limited.Until = w.deferAccount(file.AuthIndex, limited.Until)
-			}
+			w.recordQuotaFailure(file.AuthIndex, err)
 			// Do not log provider bodies, tokens, or account identifiers.
 			log.Printf("[claude-quota] account observation failed: %v", err)
 		} else if err == nil {
@@ -131,10 +132,10 @@ func (w *ClaudeQuotaWorker) pollAccount(ctx context.Context, setup store.Setup, 
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusTooManyRequests {
-		return &claudeQuotaRateLimitError{Until: claudeQuotaRetryAfter(res.Header.Get("Retry-After"), w.now())}
+		return &claudeQuotaDeferredError{Status: res.StatusCode, Until: claudeQuotaRetryAfter(res.Header.Get("Retry-After"), w.now())}
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("CPA HTTP %d", res.StatusCode)
+		return &claudeQuotaStatusError{Source: "CPA", Status: res.StatusCode}
 	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1024*1024+1))
 	if err != nil || len(raw) > 1024*1024 {
@@ -149,22 +150,25 @@ func (w *ClaudeQuotaWorker) pollAccount(ctx context.Context, setup store.Setup, 
 	if json.Unmarshal(raw, &envelope) != nil {
 		return fmt.Errorf("invalid quota response")
 	}
-	if envelope.Status == http.StatusTooManyRequests {
+	switch {
+	case envelope.Status == http.StatusTooManyRequests:
 		value := claudeQuotaRetryHeader(envelope.Header)
 		if value == "" {
 			value = claudeQuotaRetryHeader(envelope.Headers)
 		}
-		return &claudeQuotaRateLimitError{Until: claudeQuotaRetryAfter(value, w.now())}
-	}
-	if envelope.Status < 200 || envelope.Status >= 300 {
-		return fmt.Errorf("provider HTTP %d", envelope.Status)
+		return &claudeQuotaDeferredError{Status: envelope.Status, Until: claudeQuotaRetryAfter(value, w.now())}
+	case envelope.Status == http.StatusUnauthorized || envelope.Status == http.StatusForbidden:
+		// The provider rejected the credential. Retrying every poll cannot help.
+		return &claudeQuotaDeferredError{Status: envelope.Status, Until: w.now()}
+	case envelope.Status < 200 || envelope.Status >= 300:
+		return &claudeQuotaStatusError{Source: "provider", Status: envelope.Status}
 	}
 	var bodyText string
 	if json.Unmarshal(envelope.Body, &bodyText) == nil {
 		envelope.Body = json.RawMessage(bodyText)
 	}
 	observed := w.now().UnixMilli()
-	windows, err := parseClaudeQuota(envelope.Body, observed)
+	windows, complete, err := parseClaudeQuota(envelope.Body, observed)
 	if err != nil {
 		return err
 	}
@@ -173,67 +177,76 @@ func (w *ClaudeQuotaWorker) pollAccount(ctx context.Context, setup store.Setup, 
 	if len(windows) == 0 {
 		return nil
 	}
+	// A complete inventory lets the store retire windows the provider stopped
+	// reporting, such as the five-hour limit Anthropic dropped for Max plans.
+	mode := "partial"
+	if complete {
+		mode = "complete"
+	}
 	_, err = w.writer.Write(ctx, quotasvc.WriteRequest{Entries: []quotasvc.WriteEntry{{
 		Provider:    "claude",
 		Account:     quotasvc.AccountTarget{AccountSnapshot: file.AccountSnapshot, AuthFileSnapshot: file.Name, AuthProviderSnapshot: "claude", AuthIndex: file.AuthIndex, Source: file.Name},
-		Observation: &quotasvc.ObservationInput{Source: "api_query", ObservedAtMS: observed, InventoryScopeKey: "claude-background", InventoryMode: "partial"},
+		Observation: &quotasvc.ObservationInput{Source: "api_query", ObservedAtMS: observed, InventoryScopeKey: "claude-background", InventoryMode: mode},
 		Windows:     windows,
 	}}})
 	if err != nil {
 		return fmt.Errorf("could not save quota observation")
 	}
-	if w.weekly != nil {
-		for _, window := range windows {
-			if window.ProviderWindowID == "seven-day" {
-				w.weekly[file.AuthIndex] = window
-			}
-		}
+	weekly, ok := findWindow(windows, "seven-day")
+	switch {
+	case ok:
+		w.weekly[file.AuthIndex] = weekly
+	case complete:
+		delete(w.weekly, file.AuthIndex)
 	}
 	return nil
 }
 
-func parseClaudeQuota(raw json.RawMessage, observed int64) ([]quotasvc.WindowInput, error) {
+// pruneWeekly forgets credentials that CPA no longer lists and weekly cycles
+// that have ended, whose usage the provider has already reset.
+func (w *ClaudeQuotaWorker) pruneWeekly(files []cpaauthfiles.File) {
+	listed := map[string]bool{}
+	for _, file := range files {
+		listed[file.AuthIndex] = true
+	}
+	now := w.now().UnixMilli()
+	for index, window := range w.weekly {
+		if !listed[index] || (window.CycleEndMS != nil && *window.CycleEndMS <= now) {
+			delete(w.weekly, index)
+		}
+	}
+}
+
+func findWindow(windows []quotasvc.WindowInput, id string) (quotasvc.WindowInput, bool) {
+	for _, window := range windows {
+		if window.ProviderWindowID == id {
+			return window, true
+		}
+	}
+	return quotasvc.WindowInput{}, false
+}
+
+// parseClaudeQuota reads the windows the background worker tracks. Complete is
+// true when every tracked window in the payload was understood, so a tracked
+// window missing from the result is one the provider no longer reports.
+func parseClaudeQuota(raw json.RawMessage, observed int64) ([]quotasvc.WindowInput, bool, error) {
 	var payload map[string]json.RawMessage
 	if json.Unmarshal(raw, &payload) != nil || payload == nil {
-		return nil, fmt.Errorf("invalid Claude usage payload")
+		return nil, false, fmt.Errorf("invalid Claude usage payload")
 	}
 	windows := []quotasvc.WindowInput{}
-	seen := map[string]bool{}
+	seen, rejected := map[string]bool{}, map[string]bool{}
 	add := func(id string, data json.RawMessage, seconds int64) {
-		if seen[id] {
+		// Null means the provider has no such limit for this account.
+		if seen[id] || len(data) == 0 || string(data) == "null" {
 			return
 		}
-		var value struct {
-			Utilization *float64 `json:"utilization"`
-			Percent     *float64 `json:"percent"`
-			ResetsAt    string   `json:"resets_at"`
-			ResetAt     string   `json:"reset_at"`
-		}
-		if json.Unmarshal(data, &value) != nil {
+		window, ok := parseClaudeWindow(id, data, seconds, observed)
+		if !ok {
+			rejected[id] = true
 			return
 		}
-		percent := value.Utilization
-		if percent == nil {
-			percent = value.Percent
-		}
-		if percent == nil || *percent < 0 || *percent > 100 {
-			return
-		}
-		if value.ResetsAt == "" {
-			value.ResetsAt = value.ResetAt
-		}
-		reset, err := time.Parse(time.RFC3339Nano, value.ResetsAt)
-		if err != nil || reset.UnixMilli() <= observed {
-			return
-		}
-		end := reset.UnixMilli()
-		start := end - seconds*1000
-		remaining := 100 - *percent
-		kind := "weekly"
-		if seconds == 18000 {
-			kind = "session"
-		}
-		windows = append(windows, quotasvc.WindowInput{ProviderWindowID: id, WindowKind: kind, WindowMode: "fixed", ModelScopeKind: "all", Source: "api_query", ObservedAtMS: observed, BoundaryAccuracy: "derived", CycleStartMS: &start, CycleEndMS: &end, DurationSeconds: &seconds, UsedPercent: percent, RemainingPercent: &remaining})
+		windows = append(windows, window)
 		seen[id] = true
 	}
 	add("seven-day", payload["seven_day"], 604800)
@@ -264,5 +277,51 @@ func parseClaudeQuota(raw json.RawMessage, observed int64) ([]quotasvc.WindowInp
 			add("five-hour", data, 18000)
 		}
 	}
-	return windows, nil
+	complete := len(windows) > 0
+	for id := range rejected {
+		complete = complete && seen[id]
+	}
+	return windows, complete, nil
+}
+
+func parseClaudeWindow(id string, data json.RawMessage, seconds, observed int64) (quotasvc.WindowInput, bool) {
+	var value struct {
+		Utilization *float64 `json:"utilization"`
+		Percent     *float64 `json:"percent"`
+		ResetsAt    string   `json:"resets_at"`
+		ResetAt     string   `json:"reset_at"`
+	}
+	if json.Unmarshal(data, &value) != nil {
+		return quotasvc.WindowInput{}, false
+	}
+	percent := value.Utilization
+	if percent == nil {
+		percent = value.Percent
+	}
+	if percent == nil || *percent < 0 || *percent > 100 {
+		return quotasvc.WindowInput{}, false
+	}
+	remaining := 100 - *percent
+	kind := "weekly"
+	if seconds == 18000 {
+		kind = "session"
+	}
+	window := quotasvc.WindowInput{ProviderWindowID: id, WindowKind: kind, ModelScopeKind: "all", Source: "api_query", ObservedAtMS: observed, DurationSeconds: &seconds, UsedPercent: percent, RemainingPercent: &remaining}
+	if value.ResetsAt == "" {
+		value.ResetsAt = value.ResetAt
+	}
+	if value.ResetsAt == "" {
+		// An idle window has no cycle until the account is used again. It still
+		// exists, and the panel stores it the same way.
+		window.WindowMode, window.BoundaryAccuracy = "unknown", "unknown"
+		return window, true
+	}
+	reset, err := time.Parse(time.RFC3339Nano, value.ResetsAt)
+	if err != nil || reset.UnixMilli() <= observed {
+		return quotasvc.WindowInput{}, false
+	}
+	end := reset.UnixMilli()
+	start := end - seconds*1000
+	window.WindowMode, window.BoundaryAccuracy, window.CycleStartMS, window.CycleEndMS = "fixed", "derived", &start, &end
+	return window, true
 }

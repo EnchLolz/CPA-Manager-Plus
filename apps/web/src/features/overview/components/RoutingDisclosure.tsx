@@ -48,7 +48,11 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className={`${styles.routingState} ${status.enabled && !status.last_error ? styles.routingOn : styles.routingOff}`} />
+        <span
+          className={`${styles.routingState} ${
+            !status.enabled || status.last_error ? styles.routingOff : status.warning ? styles.routingWarn : styles.routingOn
+          }`}
+        />
         <span className={styles.routingSummary}>{summary}</span>
         {status.enabled && first && !open && (
           <span className={styles.routingFirst}>
@@ -67,6 +71,7 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
                 const detail = [
                   account.pinned ? (pinEnds ? `pinned until ${pinEnds.absolute}` : 'pinned') : null,
                   account.tier ? account.tier : null,
+                  account.quota_unknown ? 'quota unknown' : null,
                   typeof account.used_percent === 'number' ? `${Math.round(100 - account.used_percent)}% left` : null,
                   reset ? `resets ${reset.relative}` : null,
                   `priority ${account.priority}`,
@@ -74,7 +79,7 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
                   .filter(Boolean)
                   .join(' · ');
                 return (
-                  <li key={account.auth_index || account.name}>
+                  <li key={account.auth_index || account.name} title={account.quota_error}>
                     <span className={styles.rank}>#{index + 1}</span>
                     <span className={`${styles.mono} ${styles.routingName}`}>{name(account.name)}</span>
                     <span className={styles.routingDetail}>{detail}</span>
@@ -92,6 +97,7 @@ export function RoutingDisclosure({ status, nowMs, locale, showEmails }: Routing
             <span>polled {ago(status.last_poll_at_ms, nowMs)}</span>
             {status.enabled && <span>applied {ago(status.last_applied_at_ms, nowMs)}</span>}
             {status.last_error && <span className={styles.routingError}>{status.last_error}</span>}
+            {status.warning && <span className={styles.routingError}>{status.warning}</span>}
           </div>
         </div>
       )}

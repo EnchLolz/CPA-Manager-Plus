@@ -339,6 +339,7 @@ $summary-divider: 1px 0 0 var(--glass-border), 0 1px 0 var(--glass-border);
 }
 
 .routingOn { background: #19b989; }
+.routingWarn { background: var(--data-amber-base); }
 .routingOff { background: var(--text-tertiary); opacity: 0.6; }
 
 .routingSummary {
@@ -565,6 +566,14 @@ $summary-divider: 1px 0 0 var(--glass-border), 0 1px 0 var(--glass-border);
   flex-direction: column;
   gap: 7px;
   min-width: 0;
+}
+
+// Holds a shared column for a window this account does not have. Stacked
+// windows have no columns to keep.
+.windowEmpty {
+  @media (max-width: 640px) {
+    display: none;
+  }
 }
 
 .windowHead {

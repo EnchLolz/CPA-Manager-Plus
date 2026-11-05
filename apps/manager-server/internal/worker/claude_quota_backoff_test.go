@@ -85,6 +85,47 @@ func TestClaudeQuotaBackoffSurvivesRestartWithoutBlockingHealthyAccounts(t *test
 	}
 }
 
+func TestClaudeQuotaRejectedSignInIsDeferredAndReported(t *testing.T) {
+	t.Setenv("USAGE_DATA_DIR", t.TempDir())
+	t.Setenv("CLAUDE_RESET_PRIORITY", "false")
+	now := time.Now().UTC().Truncate(time.Second)
+	status := map[string]int{"expired": 401, "flaky": 500}
+	calls := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v0/management/auth-files" {
+			_, _ = w.Write([]byte(`{"files":[{"name":"expired.json","provider":"claude","auth_index":"expired"},{"name":"flaky.json","provider":"claude","auth_index":"flaky"}]}`))
+			return
+		}
+		var req struct {
+			AuthIndex string `json:"authIndex"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		calls[req.AuthIndex]++
+		_ = json.NewEncoder(w).Encode(map[string]any{"status_code": status[req.AuthIndex], "body": "failed"})
+	}))
+	defer server.Close()
+	config := quotaTestConfig{store.Setup{CPAUpstreamURL: server.URL, ManagementKey: "test"}}
+	worker := NewClaudeQuotaWorker(config, &quotaTestWriter{})
+	worker.now = func() time.Time { return now }
+	for range 2 {
+		if err := worker.poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expired, flaky := worker.retries["expired"], worker.retries["flaky"]
+	if calls["expired"] != 1 || !expired.Until.Equal(now.Add(10*time.Minute)) || expired.Status != 401 || expired.Error == "" {
+		t.Fatalf("rejected sign-in polled %d times, state %+v", calls["expired"], expired)
+	}
+	if calls["flaky"] != 2 || !flaky.Until.IsZero() || flaky.Status != 500 || flaky.Error != "provider HTTP 500" {
+		t.Fatalf("transient failure polled %d times, state %+v", calls["flaky"], flaky)
+	}
+	// The failure survives a restart so the panel keeps showing it.
+	restarted := NewClaudeQuotaWorker(config, &quotaTestWriter{})
+	if got := restarted.retries["expired"]; got.Status != 401 || got.Error != expired.Error {
+		t.Fatalf("failure not persisted: %+v", got)
+	}
+}
+
 func TestClaudeQuotaRetryAfterFormatsAndFallback(t *testing.T) {
 	now := time.Date(2026, 10, 29, 7, 0, 0, 0, time.UTC)
 	for _, item := range []struct {

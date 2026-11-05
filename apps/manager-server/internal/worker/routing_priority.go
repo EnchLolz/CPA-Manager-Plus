@@ -25,18 +25,27 @@ type RoutingAccount struct {
 	CycleEndMS  *int64   `json:"cycle_end_ms,omitempty"`
 	UsedPercent *float64 `json:"used_percent,omitempty"`
 	Pinned      bool     `json:"pinned,omitempty"`
+	// QuotaUnknown marks an account ranked without a current quota observation.
+	QuotaUnknown bool `json:"quota_unknown,omitempty"`
+	// QuotaError is the latest failed quota read, kept until one succeeds, with
+	// the HTTP status when there was one (401 means the sign-in was rejected).
+	QuotaError       string `json:"quota_error,omitempty"`
+	QuotaErrorStatus int    `json:"quota_error_status,omitempty"`
 }
 
 // RoutingStatus is the last observed state of one provider's priority worker,
 // so the panel can show what routing is doing without reading logs.
 type RoutingStatus struct {
-	Enabled         bool             `json:"enabled"`
-	Strategy        string           `json:"strategy"`
-	LastPollAtMS    int64            `json:"last_poll_at_ms"`
-	LastAppliedAtMS int64            `json:"last_applied_at_ms"`
-	LastError       string           `json:"last_error,omitempty"`
-	Order           []RoutingAccount `json:"order"`
-	Pin             *RoutingPin      `json:"pin,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	Strategy        string `json:"strategy"`
+	LastPollAtMS    int64  `json:"last_poll_at_ms"`
+	LastAppliedAtMS int64  `json:"last_applied_at_ms"`
+	LastError       string `json:"last_error,omitempty"`
+	// Warning describes a degraded but working order, such as accounts ranked
+	// without a current quota. LastError means the automatic order is paused.
+	Warning string           `json:"warning,omitempty"`
+	Order   []RoutingAccount `json:"order"`
+	Pin     *RoutingPin      `json:"pin,omitempty"`
 }
 
 var routingState struct {

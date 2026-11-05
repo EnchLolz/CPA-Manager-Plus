@@ -2,79 +2,138 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"math"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpaauthfiles"
 	quotasvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/quotasnapshot"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 )
 
+// routingQuotaMaxAge bounds how long a weekly observation keeps ranking an
+// account whose quota can no longer be read. A weekly reset is fixed for its
+// cycle and usage only grows within it, so an observation stays a sound sort
+// key through the hour-long quota backoff, but not for a credential that has
+// stopped working.
+const routingQuotaMaxAge = 2 * time.Hour
+
+var errNoWeeklyQuotas = errors.New("reset priority unchanged: no current weekly quotas")
+
+type quotaTier int
+
+const (
+	tierAvailable quotaTier = iota
+	tierUnknown
+	tierExhausted
+)
+
 type resetPriority struct {
 	file     cpaauthfiles.File
 	priority int
+	tier     quotaTier
+	// weekly is the observation the account was ranked by; zero when unknown.
+	weekly quotasvc.WindowInput
 }
 
-// Require a fresh, future weekly reset for every enabled Claude credential before
-// reordering anything. Unknown quotas never imply unlimited or exhausted usage.
-// A pinned account goes first unless its weekly limit is exhausted.
+// currentWeekly returns an account's weekly window when it is recent enough to
+// rank by and its cycle has not ended.
+func currentWeekly(windows map[string]quotasvc.WindowInput, index string, now int64) (quotasvc.WindowInput, bool) {
+	q, ok := windows[index]
+	if !ok || index == "" || q.UsedPercent == nil || q.ObservedAtMS > now || now-q.ObservedAtMS > routingQuotaMaxAge.Milliseconds() {
+		return quotasvc.WindowInput{}, false
+	}
+	if q.CycleEndMS != nil && *q.CycleEndMS <= now {
+		return quotasvc.WindowInput{}, false
+	}
+	return q, true
+}
+
+// resetSortKey orders by reset second; API timestamps jitter by milliseconds.
+// An idle weekly window starts its cycle at the next request, so it resets
+// after every running cycle.
+func resetSortKey(q quotasvc.WindowInput) int64 {
+	if q.CycleEndMS == nil {
+		return math.MaxInt64
+	}
+	return *q.CycleEndMS / 1000
+}
+
+// planResetPriorities ranks enabled Claude credentials: accounts with quota
+// left by earliest weekly reset, then accounts whose quota is unknown in their
+// current order, then exhausted accounts. Unknown quotas never imply unlimited
+// or exhausted usage, so they neither jump ahead nor drop to the bottom, and
+// one unreadable account does not hold back the rest. A pinned account goes
+// first unless its weekly limit is known to be exhausted. Without any current
+// quota there is nothing to rank by, so only a pin changes the order.
 func planResetPriorities(files []cpaauthfiles.File, windows map[string]quotasvc.WindowInput, now int64, pinned string) ([]resetPriority, error) {
-	enabled := []cpaauthfiles.File{}
+	ranked := []resetPriority{}
+	known := 0
 	for _, file := range files {
-		if file.Provider != "claude" || file.Disabled {
+		if !strings.EqualFold(file.Provider, "claude") || file.Disabled {
 			continue
 		}
-		q, ok := windows[file.AuthIndex]
-		if !ok || file.AuthIndex == "" || q.CycleEndMS == nil || *q.CycleEndMS <= now || q.ObservedAtMS > now || now-q.ObservedAtMS > 15*60*1000 || q.UsedPercent == nil {
-			return nil, fmt.Errorf("reset priority unchanged: incomplete or stale weekly quotas")
+		item := resetPriority{file: file, tier: tierUnknown}
+		if q, ok := currentWeekly(windows, file.AuthIndex, now); ok {
+			item.weekly, item.tier = q, tierAvailable
+			if *q.UsedPercent >= 100 {
+				item.tier = tierExhausted
+			}
+			known++
 		}
-		enabled = append(enabled, file)
+		ranked = append(ranked, item)
 	}
-	sort.Slice(enabled, func(i, j int) bool {
-		a, b := windows[enabled[i].AuthIndex], windows[enabled[j].AuthIndex]
-		if (*a.UsedPercent >= 100) != (*b.UsedPercent >= 100) {
-			return *a.UsedPercent < 100
+	if known == 0 && len(ranked) > 0 && pinned == "" {
+		return nil, errNoWeeklyQuotas
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		a, b := ranked[i], ranked[j]
+		if a.tier != b.tier {
+			return a.tier < b.tier
 		}
-		// API reset timestamps can jitter by milliseconds. Equal seconds are a tie.
-		if *a.CycleEndMS/1000 != *b.CycleEndMS/1000 {
-			return *a.CycleEndMS < *b.CycleEndMS
+		if a.tier == tierUnknown {
+			pa, _ := currentPriority(a.file)
+			pb, _ := currentPriority(b.file)
+			if pa != pb {
+				return pa > pb
+			}
+		} else if ka, kb := resetSortKey(a.weekly), resetSortKey(b.weekly); ka != kb {
+			return ka < kb
 		}
-		return enabled[i].Name < enabled[j].Name
+		return a.file.Name < b.file.Name
 	})
-	enabled = pinFirst(enabled, func(file cpaauthfiles.File) bool {
-		return pinned != "" && file.AuthIndex == pinned && *windows[file.AuthIndex].UsedPercent < 100
+	ranked = pinFirst(ranked, func(item resetPriority) bool {
+		return pinned != "" && item.file.AuthIndex == pinned && item.tier != tierExhausted
 	})
-	return rankResetPriorities(enabled), nil
+	for i := range ranked {
+		ranked[i].priority = (len(ranked) - i) * 10
+	}
+	return ranked, nil
 }
 
-// planPinnedOverCurrent honors a pin while quotas are incomplete: the automatic
-// order is unknown, so CPA's current order is kept and only the pin moves.
-func planPinnedOverCurrent(files []cpaauthfiles.File, pinned string) []resetPriority {
-	enabled := []cpaauthfiles.File{}
-	for _, file := range files {
-		if file.Provider == "claude" && !file.Disabled && file.AuthIndex != "" {
-			enabled = append(enabled, file)
+// routingWarning describes accounts ranked without a current quota. When none
+// has one, the order is CPA's current order with only the pin moved.
+func routingWarning(plan []resetPriority) (warning string, paused bool) {
+	unknown := 0
+	for _, item := range plan {
+		if item.tier == tierUnknown {
+			unknown++
 		}
 	}
-	sort.SliceStable(enabled, func(i, j int) bool {
-		a, _ := currentPriority(enabled[i])
-		b, _ := currentPriority(enabled[j])
-		if a != b {
-			return a > b
-		}
-		return enabled[i].Name < enabled[j].Name
-	})
-	enabled = pinFirst(enabled, func(file cpaauthfiles.File) bool { return file.AuthIndex == pinned })
-	return rankResetPriorities(enabled)
-}
-
-func rankResetPriorities(ordered []cpaauthfiles.File) []resetPriority {
-	result := []resetPriority{}
-	for i, file := range ordered {
-		result = append(result, resetPriority{file: file, priority: (len(ordered) - i) * 10})
+	switch {
+	case unknown == 0:
+		return "", false
+	case unknown == len(plan):
+		return "no current weekly quotas: kept the current order with the pinned account first", true
+	case unknown == 1:
+		return "1 account has no current weekly quota and is ranked after accounts with quota left", false
+	default:
+		return fmt.Sprintf("%d accounts have no current weekly quota and are ranked after accounts with quota left", unknown), false
 	}
-	return result
 }
 
 // refreshPin ends a pin at the pinned account's weekly reset, when its fresh
@@ -146,22 +205,32 @@ func (w *ClaudeQuotaWorker) applyResetPriority(ctx context.Context, setup store.
 	updateRoutingStatus("claude", func(status *RoutingStatus) { status.Pin = copyRoutingPin(w.pin) })
 	plan, planErr := planResetPriorities(files, w.weekly, now, pinned)
 	if planErr != nil {
-		if pinned == "" {
-			return planErr
+		updateRoutingStatus("claude", func(status *RoutingStatus) { status.Warning = "" })
+		return planErr
+	}
+	warning, paused := routingWarning(plan)
+	if paused {
+		// Reported as an error so the panel shows automatic ordering as paused.
+		planErr, warning = errors.New(warning), ""
+	}
+	if warning != w.lastWarning {
+		if warning != "" {
+			log.Printf("[claude-reset-priority] %s", warning)
 		}
-		plan = planPinnedOverCurrent(files, pinned)
-		planErr = fmt.Errorf("incomplete or stale weekly quotas: kept the current order with the pinned account first")
+		w.lastWarning = warning
 	}
 	order := make([]RoutingAccount, 0, len(plan))
 	for _, item := range plan {
-		q := w.weekly[item.file.AuthIndex]
+		failure := w.retries[item.file.AuthIndex]
 		order = append(order, RoutingAccount{
 			Name: item.file.Name, AuthIndex: item.file.AuthIndex, Priority: item.priority,
-			CycleEndMS: q.CycleEndMS, UsedPercent: q.UsedPercent, Pinned: item.file.AuthIndex == pinned,
+			CycleEndMS: item.weekly.CycleEndMS, UsedPercent: item.weekly.UsedPercent, Pinned: item.file.AuthIndex == pinned,
+			QuotaUnknown: item.tier == tierUnknown, QuotaError: failure.Error, QuotaErrorStatus: failure.Status,
 		})
 	}
 	updateRoutingStatus("claude", func(status *RoutingStatus) {
 		status.Order = order
+		status.Warning = warning
 		status.LastAppliedAtMS = now
 	})
 	for _, item := range plan {

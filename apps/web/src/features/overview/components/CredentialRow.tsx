@@ -1,11 +1,13 @@
 import { IconRefreshCw } from '@/components/ui/icons';
 import {
+  describeQuotaIssue,
   formatPercentValue,
   formatPlanType,
   formatResetParts,
   maskCredentialName,
   toneForRemaining,
   type OverviewCredential,
+  type OverviewWindow,
   type RoutingSlot,
 } from '../model/overviewModel';
 import { IconPin, IconPinOff } from './PinIcons';
@@ -16,6 +18,8 @@ import styles from '../OverviewPage.module.scss';
 
 interface CredentialRowProps {
   credential: OverviewCredential;
+  /** Window ids shared with the provider's other rows; null lays out this row's own. */
+  columns: string[] | null;
   nowMs: number;
   locale: string;
   showEmails: boolean;
@@ -29,6 +33,7 @@ interface CredentialRowProps {
 
 export function CredentialRow({
   credential,
+  columns,
   nowMs,
   locale,
   showEmails,
@@ -49,6 +54,10 @@ export function CredentialRow({
   const pinEnds = pinned ? formatResetParts(routing?.pinUntilMs ?? null, nowMs, locale) : null;
   // The first account needs no pin, and an exhausted one cannot serve traffic.
   const canUseFirst = routing !== null && !pinned && routing.rank > 1 && (routing.account.used_percent ?? 0) < 100;
+  const quotaIssue = routing ? describeQuotaIssue(routing.account) : null;
+  const slots: Array<{ id: string; window: OverviewWindow | null }> = columns
+    ? columns.map((id) => ({ id, window: credential.windows.find((w) => w.id === id) ?? null }))
+    : credential.windows.map((window) => ({ id: window.id, window }));
   return (
     <div className={`${styles.row} ${credential.disabled ? styles.rowDisabled : ''}`}>
       <div className={styles.identity}>
@@ -83,13 +92,21 @@ export function CredentialRow({
           {errorText && credential.windows.length > 0 && (
             <span className={styles.badgeMuted}>last known quota</span>
           )}
+          {quotaIssue && (
+            <span className={styles.badgeError} title={quotaIssue.title}>
+              {quotaIssue.label}
+            </span>
+          )}
         </div>
       </div>
       <div className={styles.windows}>
         {credential.windows.length === 0 ? (
           <div className={styles.noData}>No quota observed yet</div>
         ) : (
-          credential.windows.map((window) => (
+          slots.map(({ id, window }) =>
+            window === null ? (
+              <div key={id} className={styles.windowEmpty} aria-hidden="true" />
+            ) : (
             <div key={window.id} className={styles.window}>
               <div className={styles.windowHead}>
                 <span className={styles.windowLabel}>{window.label}</span>
@@ -102,7 +119,8 @@ export function CredentialRow({
               <UsageBar remainingPercent={window.remainingPercent} stale={window.stale} />
               <ResetLine resetAtMs={window.resetAtMs} nowMs={nowMs} locale={locale} />
             </div>
-          ))
+            )
+          )
         )}
       </div>
       <div className={styles.actions}>

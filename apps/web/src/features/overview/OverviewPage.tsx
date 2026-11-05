@@ -166,6 +166,7 @@ export function OverviewPage() {
               <CredentialRow
                 key={credential.key}
                 credential={credential}
+                columns={provider.windowColumns}
                 nowMs={data.nowMs}
                 locale={locale}
                 showEmails={showEmails}

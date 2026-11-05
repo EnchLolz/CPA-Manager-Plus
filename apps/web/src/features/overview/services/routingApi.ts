@@ -9,6 +9,11 @@ export interface RoutingAccount {
   cycle_end_ms?: number;
   used_percent?: number;
   pinned?: boolean;
+  /** Ranked without a current quota observation, after accounts with quota left. */
+  quota_unknown?: boolean;
+  /** Latest failed quota read, kept until one succeeds; 401 means the login was rejected. */
+  quota_error?: string;
+  quota_error_status?: number;
 }
 
 /** A manual "use this credential first" override; until_ms ends it automatically. */
@@ -24,7 +29,10 @@ export interface RoutingStatus {
   strategy: string;
   last_poll_at_ms: number;
   last_applied_at_ms: number;
+  /** The automatic order is paused. */
   last_error?: string;
+  /** The order is applied but degraded, e.g. some accounts have no current quota. */
+  warning?: string;
   order: RoutingAccount[];
   pin?: RoutingPin | null;
 }

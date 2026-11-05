@@ -47,24 +47,6 @@ func TestResetPriorityPinGoesFirstUnlessExhausted(t *testing.T) {
 	check("b", "a", "c", "b")
 }
 
-func TestPinnedOverCurrentMovesOnlyThePin(t *testing.T) {
-	files := []cpaauthfiles.File{
-		{Name: "a", AuthIndex: "a", Provider: "claude", Raw: map[string]any{"priority": json.Number("50")}},
-		{Name: "b", AuthIndex: "b", Provider: "claude", Raw: map[string]any{"priority": json.Number("40")}},
-		{Name: "c", AuthIndex: "c", Provider: "claude", Raw: map[string]any{"priority": json.Number("30")}},
-		{Name: "off", AuthIndex: "off", Provider: "claude", Disabled: true, Raw: map[string]any{"priority": json.Number("90")}},
-		{Name: "codex", AuthIndex: "x", Provider: "codex", Raw: map[string]any{"priority": json.Number("99")}},
-	}
-	plan := planPinnedOverCurrent(files, "c")
-	got := []string{}
-	for _, item := range plan {
-		got = append(got, item.file.AuthIndex)
-	}
-	if len(plan) != 3 || got[0] != "c" || got[1] != "a" || got[2] != "b" || plan[0].priority != 30 || plan[2].priority != 10 {
-		t.Fatalf("unexpected fallback plan %v", plan)
-	}
-}
-
 func TestCodexPinGoesAheadOfTierOrder(t *testing.T) {
 	files := []cpaauthfiles.File{
 		{Name: "codex-a-plus.json", Provider: "codex", AuthIndex: "plus", Raw: map[string]any{}},
@@ -195,16 +177,24 @@ func TestClaudePinAppliesImmediatelyPersistsAndEnds(t *testing.T) {
 		t.Fatalf("restart rewrote priorities: %v patches %d -> %d", got, before, after)
 	}
 
-	// Missing quotas pause automatic ordering but still honor the pin.
+	// A quota read that starts failing keeps the last observation, the pin, and
+	// the order, reports the failure, and defers the next read.
 	cpa.mu.Lock()
 	cpa.denied["b"] = true
 	cpa.priorities["a"], cpa.priorities["b"] = 20, 10
 	cpa.mu.Unlock()
-	if err := restarted.poll(context.Background()); err == nil {
-		t.Fatal("incomplete quotas must still be reported")
+	if err := restarted.poll(context.Background()); err != nil {
+		t.Fatalf("one unreadable quota stopped routing: %v", err)
 	}
 	if got, _ := cpa.snapshot(); got["b"] != 20 || got["a"] != 10 {
-		t.Fatalf("pin dropped while quotas were incomplete: %v", got)
+		t.Fatalf("pin dropped while a quota was unreadable: %v", got)
+	}
+	status = CurrentRoutingStatus()["claude"]
+	if first := status.Order[0]; first.AuthIndex != "b" || first.QuotaUnknown || first.QuotaErrorStatus != 403 || first.QuotaError == "" || status.LastError != "" {
+		t.Fatalf("failing quota status: %+v", status)
+	}
+	if !restarted.retries["b"].Until.After(now) {
+		t.Fatalf("rejected credential not deferred: %+v", restarted.retries["b"])
 	}
 	cpa.mu.Lock()
 	cpa.denied["b"] = false
